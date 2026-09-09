@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "trip_kind" text DEFAULT 'business' NOT NULL;

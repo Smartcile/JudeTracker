@@ -1,0 +1,1 @@
+ALTER TABLE "logs" ADD COLUMN "has_photo" boolean DEFAULT false NOT NULL;

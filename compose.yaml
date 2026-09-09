@@ -1,0 +1,53 @@
+# JudeTracker stack - Postgres 16 + app.
+# Every value can be overridden from a local `.env` file in this directory
+# (copy .env.example). Changes to POSTGRES_* apply when the db volume is first
+# created - recreate the volume after changing them on an existing install.
+#   docker compose up -d --build        then open http://localhost:${APP_PORT}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-judetracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-judetracker}
+      POSTGRES_DB: ${POSTGRES_DB:-judetracker}
+    # Host binding for the database. Loopback-only by default so Postgres is
+    # not exposed to other machines; used for local development tooling.
+    ports:
+      - "${DB_HOST_PORT:-127.0.0.1:5433}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-judetracker} -d ${POSTGRES_DB:-judetracker}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8090}:${APP_PORT:-8090}"
+    environment:
+      PORT: ${APP_PORT:-8090}
+      DATABASE_URL: postgres://${POSTGRES_USER:-judetracker}:${POSTGRES_PASSWORD:-judetracker}@db:5432/${POSTGRES_DB:-judetracker}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-20160}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-15}
+      DATA_DIR: /data
+      NODE_ENV: production
+    volumes:
+      - jt_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${APP_PORT:-8090}/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
+  jt_data:

@@ -1,0 +1,11 @@
+node_modules
+data
+dist
+client/dist
+.git
+*.log
+.env
+
+# Docs: README.md stays in the image; the other markdown files are dev-only.
+**/*.md
+!README.md
