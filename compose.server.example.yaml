@@ -3,6 +3,10 @@
 # Copy to your server (e.g. compose.yaml there), adjust .env values, then:
 #   docker compose up -d
 # Requires Docker with Compose. First boot creates the db + admin PIN screen.
+#
+# If the host Docker daemon reports "all predefined address pools have been
+# fully subnetted" (common after repeated Portainer deploys), configure
+# `default-address-pools` on the host - see daemon.example.json and README.
 services:
   db:
     image: postgres:16-alpine

@@ -3,6 +3,10 @@
 # (copy .env.example). Changes to POSTGRES_* apply when the db volume is first
 # created - recreate the volume after changing them on an existing install.
 #   docker compose up -d --build        then open http://localhost:${APP_PORT}
+#
+# Self-hosted servers (e.g. Portainer): if Docker reports "all predefined
+# address pools have been fully subnetted", the daemon needs
+# `default-address-pools` configured - see daemon.example.json and README.
 
 services:
   db:

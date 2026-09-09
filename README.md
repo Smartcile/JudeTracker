@@ -51,6 +51,8 @@ docker compose up -d
 
 `compose.server.example.yaml` is the image-based equivalent of the local `compose.yaml`.
 
+**Host Docker daemon note:** if a deploy fails with `all predefined address pools have been fully subnetted`, the daemon's default bridge pool (~15 networks) is exhausted — usually leftover networks from earlier failed deploys. Fix: prune unused networks (`docker network prune -f`) and expand the pool. A ready-made `daemon.example.json` (keeps an NVIDIA runtime if you use one) is in the repo — copy it to `/etc/docker/daemon.json`, then `sudo systemctl restart docker`.
+
 ### Local development
 
 ```bash
