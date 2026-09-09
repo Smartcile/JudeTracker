@@ -1,0 +1,48 @@
+# Server deployment compose - pulls the prebuilt image from GitHub
+# Container Registry (published automatically by CI on every push to master).
+# Copy to your server (e.g. compose.yaml there), adjust .env values, then:
+#   docker compose up -d
+# Requires Docker with Compose. First boot creates the db + admin PIN screen.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-judetracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-judetracker}
+      POSTGRES_DB: ${POSTGRES_DB:-judetracker}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-judetracker} -d ${POSTGRES_DB:-judetracker}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    image: ghcr.io/smartcile/judetracker:master
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8090}:${APP_PORT:-8090}"
+    environment:
+      PORT: ${APP_PORT:-8090}
+      DATABASE_URL: postgres://${POSTGRES_USER:-judetracker}:${POSTGRES_PASSWORD:-judetracker}@db:5432/${POSTGRES_DB:-judetracker}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-20160}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-15}
+      DATA_DIR: /data
+      NODE_ENV: production
+    volumes:
+      - jt_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${APP_PORT:-8090}/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
+  jt_data:

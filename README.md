@@ -38,6 +38,19 @@ Every setting has a sane default and can be overridden with a local `.env` (see 
 
 **Persistent data lives in Docker volumes** (`db_data`, `jt_data` for photos) — back them up, not the containers.
 
+### Deploy on a server (prebuilt image)
+
+Every push to `master` publishes the image to GitHub Container Registry (`ghcr.io/smartcile/judetracker:master`). On the server:
+
+```bash
+curl -O https://raw.githubusercontent.com/Smartcile/JudeTracker/master/compose.server.example.yaml
+mv compose.server.example.yaml compose.yaml
+# create a .env with POSTGRES_PASSWORD etc. (see .env.example)
+docker compose up -d
+```
+
+`compose.server.example.yaml` is the image-based equivalent of the local `compose.yaml`.
+
 ### Local development
 
 ```bash
