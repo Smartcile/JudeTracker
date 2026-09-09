@@ -43,7 +43,7 @@ jobs:
           context: .
           push: ${{ github.ref == 'refs/heads/master' }}
           tags: |
-            ghcr.io/${{ github.repository }}:master
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/smartcile/judetracker:master
+            ghcr.io/smartcile/judetracker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
