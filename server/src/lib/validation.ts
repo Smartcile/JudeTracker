@@ -40,6 +40,19 @@ export const settingsBody = z.object({
 
 const up = (max: number) => (s: string) => s.trim().toUpperCase().slice(0, max);
 
+const realDay = (s: string): boolean => {
+  const p = s.split("-");
+  const y = Number(p[0]);
+  const m = Number(p[1]);
+  const d = Number(p[2]);
+  return Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d) && m >= 1 && m <= 12 && d >= 1 && d <= new Date(y, m, 0).getDate();
+};
+
+export const jobDateField = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+  .refine(realDay, "Not a real calendar day");
+
 export const jobCreateBody = z.object({
   eventUid: z.string().optional(),
   client: z.string().trim().transform(up(120)).optional(),
@@ -54,7 +67,22 @@ export const jobPatchBody = z.object({
   location: z.string().trim().transform(up(200)).optional(),
   notes: z.string().trim().transform(up(500)).optional(),
   eventUid: z.string().trim().min(1).max(500).nullable().optional(),
+  jobDate: jobDateField.optional(),
+  vehicleId: z.number().int().positive().nullable().optional(),
 });
+
+export const logPatchBody = z
+  .object({
+    takenAt: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "Invalid timestamp").optional(),
+    lat: z.number().min(-90).max(90).nullable().optional(),
+    lng: z.number().min(-180).max(180).nullable().optional(),
+  })
+  .refine(
+    (v) =>
+      (v.lat === undefined && v.lng === undefined) ||
+      (v.lat !== undefined && v.lng !== undefined && (v.lat == null) === (v.lng == null)),
+    "Set or clear lat and lng together",
+  );
 
 export const pairBody = z.object({
   startLogId: z.number().int().positive().nullable().optional(),

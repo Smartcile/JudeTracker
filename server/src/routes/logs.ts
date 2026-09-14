@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { eq, inArray, or } from "drizzle-orm";
 import multer from "multer";
+import { toLocalDay } from "../../../shared/claims.ts";
 import { toJob, toLog } from "../api/mappers.ts";
 import { config } from "../config.ts";
 import { db } from "../db/index.ts";
 import { jobs, logs, vehicles } from "../db/schema.ts";
 import { HttpError, httpAssert } from "../lib/http.ts";
-import { logFields, readingBody } from "../lib/validation.ts";
+import { ensureSettings } from "../lib/settingsStore.ts";
+import { logFields, logPatchBody, readingBody } from "../lib/validation.ts";
 import { readingContext, setLogReading } from "../services/readings.ts";
 import { removePhoto, storePhoto } from "../services/photos.ts";
 import { readPhotoMeta } from "../services/exif.ts";
@@ -78,10 +80,23 @@ async function attachLog(jobId: number, logId: number, role: "start" | "end"): P
     throw new HttpError(409, `This job already has ${role === "start" ? "a start" : "an end"} photo`);
   }
 
+  if (role === "start") {
+    const settings = await ensureSettings();
+    await db
+      .update(jobs)
+      .set({
+        startLogId: logId,
+        jobDate: toLocalDay(log.takenAt, settings.timezone),
+        ...(jobRow.vehicleId == null ? { vehicleId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(jobs.id, jobId));
+    return;
+  }
   await db
     .update(jobs)
     .set({
-      ...(role === "start" ? { startLogId: logId } : { endLogId: logId }),
+      endLogId: logId,
       ...(jobRow.vehicleId == null ? { vehicleId } : {}),
       updatedAt: new Date(),
     })
@@ -198,6 +213,58 @@ logsRouter.put("/:id/photo", upload.single("photo"), async (req, res) => {
     .returning();
   httpAssert(updated[0], 500, "Failed to update log");
   const pm = await plateMapOfVehicleIds([log.vehicleId]);
+  res.json({ ok: true, log: toLog(updated[0], pm) });
+});
+
+logsRouter.patch("/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const body = logPatchBody.parse(req.body);
+  await requireLog(id);
+  const updates: Record<string, unknown> = {};
+
+  const job = (
+    await db
+      .select()
+      .from(jobs)
+      .where(or(eq(jobs.startLogId, id), eq(jobs.endLogId, id)))
+  )[0];
+  if (job && (job.status === "claimed" || job.status === "submitted" || job.status === "paid")) {
+    throw new HttpError(409, "Claim already lodged - reopen it first to make changes");
+  }
+
+  if (body.takenAt !== undefined) {
+    const takenAt = new Date(body.takenAt);
+    if (job && job.startLogId != null && job.endLogId != null) {
+      const other = await requireLog(job.startLogId === id ? job.endLogId : job.startLogId);
+      const mineIsStart = job.startLogId === id;
+      const ok = mineIsStart
+        ? takenAt.getTime() <= other.takenAt.getTime()
+        : takenAt.getTime() >= other.takenAt.getTime();
+      httpAssert(ok, 409, mineIsStart ? "The start log must stay before the end log" : "The end log must stay after the start log");
+    }
+    updates.takenAt = takenAt;
+    if (job && job.startLogId === id) {
+      const settings = await ensureSettings();
+      await db.update(jobs).set({ jobDate: toLocalDay(takenAt, settings.timezone), updatedAt: new Date() }).where(eq(jobs.id, job.id));
+    }
+  }
+
+  if (body.lat !== undefined) {
+    const hasCoords = body.lat != null;
+    updates.lat = hasCoords ? body.lat : null;
+    updates.lng = hasCoords ? body.lng : null;
+    updates.accuracy = null;
+    updates.gpsSource = hasCoords ? "manual" : "none";
+  }
+
+  httpAssert(Object.keys(updates).length > 0, 400, "Nothing to update");
+  const updated = await db
+    .update(logs)
+    .set(updates)
+    .where(eq(logs.id, id))
+    .returning();
+  httpAssert(updated[0], 500, "Failed to update log");
+  const pm = await plateMapOfVehicleIds([updated[0].vehicleId]);
   res.json({ ok: true, log: toLog(updated[0], pm) });
 });
 

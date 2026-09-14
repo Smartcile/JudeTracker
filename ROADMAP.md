@@ -21,6 +21,11 @@ Milestones marked done shipped in v0.1; the rest are candidate improvements, rou
 - [x] Delete trips from the dashboard "Recent trips" list (confirm dialog; Review's expanded rows also offer it)
 - [x] In-app FAQ (IRD vehicle/km guidance from the supplied brief): FAQ tab with accordion Q&As and the quick-reference scenario table
 - [x] Calendar page (month view of bookings, trip-exists markers, create-trip-from-event, manual new trip) + searchable link/unlink of trips to calendar events from the trip details popup (`PATCH /api/jobs/:id { eventUid }`)
+- [x] Trip popup edits: per-slot date/time backdating and GPS override (typed coords stored as `manual`, or cleared) via `PATCH /api/logs/:id`; the trip date always mirrors the start log's local day (set at attach and on start-log time edits, so backfilled trips land on the right day)
+- [x] Car picker in the trip popup: pick/change the trip's car while it's unclaimed and no reading is entered (attached photo logs move with it; a reading or a lodged claim pins the car), plus a compact inline add-a-car form (plate, make/model, $/km)
+- [x] Calendar-event linking in the trip popup now has two modes: search, and a month browser with ‹ › month navigation + Today (click a booking/day to link)
+- [x] Capture wizard "Set date, time & location manually" (backdate for existing-photo / Later-on logs; manual coords pin a location instead of live GPS/EXIF)
+- [x] Format-proof photo uploads: HEIC/HEIF (iPhone/Android) decoded in-process via `heic-decode`, every accepted image normalized to a single 1920px JPEG (EXIF kept) + 480px thumbnail; originals are no longer stored (legacy `orig.*` files still served)
 
 ## Next candidates (not built — do not add without asking)
 

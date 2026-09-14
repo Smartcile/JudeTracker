@@ -76,8 +76,17 @@ export const api = {
   jobs: () => request<JobDto[]>("/api/jobs"),
   createJob: (body: { eventUid?: string; client?: string; location?: string; jobDate?: string; kind?: "business" | "personal"; notes?: string }) =>
     request<JobDto>("/api/jobs", json("POST", body)),
-  patchJob: (id: number, body: { client?: string; location?: string; notes?: string; eventUid?: string | null }) =>
-    request<JobDto>(`/api/jobs/${id}`, json("PATCH", body)),
+  patchJob: (
+    id: number,
+    body: {
+      client?: string;
+      location?: string;
+      notes?: string;
+      eventUid?: string | null;
+      jobDate?: string;
+      vehicleId?: number | null;
+    },
+  ) => request<JobDto>(`/api/jobs/${id}`, json("PATCH", body)),
   claim: (id: number, status: "claimed" | "submitted" | "paid") =>
     request<JobDto>(`/api/jobs/${id}/claim`, json("POST", { status })),
   reopen: (id: number) => request<JobDto>(`/api/jobs/${id}/reopen`, json("POST")),
@@ -114,6 +123,9 @@ export const api = {
     return request<{ ok: boolean; log: JobDto["startLog"] }>(`/api/logs/${logId}/photo`, { method: "PUT", body: form });
   },
   deleteLog: (logId: number) => request<{ ok: boolean }>(`/api/logs/${logId}`, json("DELETE")),
+  /** Override a log's timestamp and/or coordinates (manual GPS entry). */
+  patchLog: (logId: number, body: { takenAt?: string; lat?: number | null; lng?: number | null }) =>
+    request<{ ok: boolean; log: JobDto["startLog"] }>(`/api/logs/${logId}`, json("PATCH", body)),
 
   claimSummary: (from?: string, to?: string) =>
     request<ClaimSummaryDto>(

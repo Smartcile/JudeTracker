@@ -5,7 +5,7 @@ import { openDialModal } from "./dial.ts";
 import { openCaptureWizard } from "./captureWizard.ts";
 import { h } from "../dom.ts";
 import { formatKm, formatNzd } from "../../../shared/claims.ts";
-import type { CalEventDto, JobDto } from "../../../shared/types.ts";
+import type { CalEventDto, JobDto, LogDto, VehicleDto } from "../../../shared/types.ts";
 
 const pad = (km: number | null, digits: number) => (km == null ? "······" : String(km).padStart(digits, "0"));
 
@@ -16,6 +16,25 @@ function statusChip(status: JobDto["status"]): HTMLElement {
 function fmtWhen(iso: string | null): string {
   if (!iso) return "";
   return `${iso.slice(0, 10)} ${new Date(iso).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function fmtLatLng(lat: number | null, lng: number | null): string {
+  return lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : "";
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Split a stored instant into local date + time pieces for <input type=date/time>. */
+function localParts(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  return {
+    date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+    time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}`,
+  };
+}
+
+function isoFromLocal(date: string, time: string): string {
+  return new Date(`${date}T${time || "00:00"}`).toISOString();
 }
 
 async function openReading(job: JobDto, role: "start" | "end", logId: number, changed: () => Promise<void>): Promise<void> {
@@ -106,14 +125,16 @@ function readingSlot(job: JobDto, role: "start" | "end", changed: () => Promise<
     ),
     media,
     h("div", { class: "row spread" }, reading, h("div", { class: "row", style: "gap:4px" }, edit, del)),
+    ...(locked ? [] : [logDetailsControls(role, log, changed)]),
   );
   return slot;
 }
 
 /** Clickable "manual log" area: pick/photo a photo and attach it to this log. */
 function attachPhotoBox(logId: number, changed: () => Promise<void>): HTMLElement {
-  const camInput = h("input", { type: "file", accept: "image/*", capture: "environment", class: "hide" }) as HTMLInputElement;
-  const pickInput = h("input", { type: "file", accept: "image/*", class: "hide" }) as HTMLInputElement;
+  const hiddenInputStyle = "position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none";
+  const camInput = h("input", { type: "file", accept: "image/*", capture: "environment", style: hiddenInputStyle }) as HTMLInputElement;
+  const pickInput = h("input", { type: "file", accept: "image/*", style: hiddenInputStyle }) as HTMLInputElement;
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.8rem;margin:0" });
   let busy = false;
 
@@ -162,7 +183,101 @@ function attachPhotoBox(logId: number, changed: () => Promise<void>): HTMLElemen
   const camBtn = h("button", { class: "btn sm", onclick: (e: Event) => { e.stopPropagation(); open(camInput); } }, "Camera");
   const pickBtn = h("button", { class: "btn sm", onclick: (e: Event) => { e.stopPropagation(); open(pickInput); } }, "Choose photo");
   const controls = h("div", { class: "row", style: "gap:6px" }, camBtn, pickBtn);
-  const wrap = h("div", { class: "col", style: "gap:6px" }, box, controls, errEl);
+  const wrap = h("div", { class: "col", style: "gap:6px" }, box, controls, errEl, camInput, pickInput);
+  return wrap;
+}
+
+/** Manual override for a log: backdate its date/time and/or replace its GPS point with typed coordinates. */
+function logDetailsControls(role: "start" | "end", log: LogDto, changed: () => Promise<void>): HTMLElement {
+  const wrap = h("div", { class: "col", style: "gap:6px" });
+  const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.8rem;margin:0" });
+
+  const openBtn = h("button", { class: "btn sm", style: "align-self:flex-start" }, "Edit time & location");
+  const panel = h("div", {
+    class: "col",
+    style: "gap:6px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)",
+  });
+
+  const init = localParts(log.takenAt);
+  const dateI = h("input", { class: "neon-input", type: "date", value: init.date }) as HTMLInputElement;
+  const timeI = h("input", { class: "neon-input", type: "time", value: init.time }) as HTMLInputElement;
+  const latI = h("input", { class: "neon-input", type: "number", step: "any", min: "-90", max: "90", placeholder: "Latitude", value: log.lat?.toFixed(6) ?? "" }) as HTMLInputElement;
+  const lngI = h("input", { class: "neon-input", type: "number", step: "any", min: "-180", max: "180", placeholder: "Longitude", value: log.lng?.toFixed(6) ?? "" }) as HTMLInputElement;
+
+  function reset(): void {
+    const p = localParts(log.takenAt);
+    dateI.value = p.date;
+    timeI.value = p.time;
+    latI.value = log.lat?.toFixed(6) ?? "";
+    lngI.value = log.lng?.toFixed(6) ?? "";
+    errEl.textContent = "";
+  }
+
+  openBtn.onclick = () => {
+    const open = panel.style.display === "none";
+    panel.style.display = open ? "flex" : "none";
+    if (open) dateI.focus();
+  };
+
+  const save = h("button", { class: "btn sm primary" }, "Save changes");
+  const cancel = h("button", { class: "btn sm ghost", onclick: () => { panel.style.display = "none"; reset(); } }, "Cancel");
+  save.onclick = async () => {
+    errEl.textContent = "";
+    const body: { takenAt?: string; lat?: number | null; lng?: number | null } = {};
+    if (dateI.value !== init.date || timeI.value !== init.time) {
+      body.takenAt = isoFromLocal(dateI.value, timeI.value);
+    }
+    const latRaw = latI.value.trim();
+    const lngRaw = lngI.value.trim();
+    const wantsManual = latRaw !== "" || lngRaw !== "";
+    if (wantsManual && (latRaw === "" || lngRaw === "")) {
+      errEl.textContent = "Enter both latitude and longitude — or empty both to clear the GPS point.";
+      return;
+    }
+    const hasGps = log.lat != null && log.lng != null;
+    if (wantsManual) {
+      const lat = Number(latRaw);
+      const lng = Number(lngRaw);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        errEl.textContent = "Coordinates must be numbers.";
+        return;
+      }
+      const roundedSame = hasGps && lat.toFixed(6) === log.lat!.toFixed(6) && lng.toFixed(6) === log.lng!.toFixed(6);
+      if (!roundedSame) {
+        body.lat = lat;
+        body.lng = lng;
+      }
+    } else if (hasGps) {
+      body.lat = null;
+      body.lng = null;
+    }
+    if (body.takenAt === undefined && body.lat === undefined) {
+      toast("No changes to save");
+      return;
+    }
+    try {
+      await api.patchLog(log.id, body);
+      toast(role === "start" && body.takenAt ? "Saved — the trip date follows the start log" : "Log updated");
+      await changed();
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  panel.append(
+    h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px" },
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Date"), dateI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Time"), timeI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Latitude"), latI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Longitude"), lngI),
+    ),
+    h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+      `GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Edit the coordinates to override them (stored as manual); empty both to remove the point.`),
+    h("div", { class: "row", style: "gap:6px" }, save, cancel),
+    errEl,
+  );
+
+  wrap.append(openBtn, panel);
   return wrap;
 }
 
@@ -215,14 +330,152 @@ function claimControls(job: JobDto, changed: () => Promise<void>): HTMLElement {
   return row;
 }
 
+/** Pick/change the trip's car, or add a new one. Changing is blocked once a reading pins the trip to a car. */
+function vehiclePicker(current: JobDto, changed: () => Promise<void>): HTMLElement {
+  const claimed = current.status === "claimed" || current.status === "submitted" || current.status === "paid";
+  const readingPins = current.startLog?.readingKm != null || current.endLog?.readingKm != null;
+  const locked = claimed || readingPins;
+
+  const wrap = h("div", { class: "col", style: "gap:4px" });
+  const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.8rem;margin:0" });
+  const hint = h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" });
+  hint.textContent = claimed
+    ? "Claim lodged - reopen the trip to change the car."
+    : readingPins
+      ? `A reading is entered, which pins this trip to ${current.vehiclePlate ?? "its car"}.`
+      : current.vehicleId == null
+        ? "Photos and readings log against this car - pick it before capturing, or add it below."
+        : "Change the car anytime before a reading is entered.";
+
+  const select = h("select", { class: "neon-input", disabled: locked, title: locked ? hint.textContent : undefined }) as HTMLSelectElement;
+  select.style.flex = "1";
+  let vehicles: VehicleDto[] = [];
+
+  async function load(): Promise<void> {
+    try {
+      vehicles = await api.vehicles();
+    } catch {
+      vehicles = [];
+    }
+    renderOptions();
+  }
+
+  function renderOptions(): void {
+    while (select.firstChild) select.removeChild(select.firstChild);
+    const noneOpt = h("option", { value: "" }, vehicles.length === 0 ? "No cars yet" : "— pick a car —") as HTMLOptionElement;
+    select.append(noneOpt);
+    for (const v of [...vehicles].sort((a, b) => Number(b.active) - Number(a.active) || a.plate.localeCompare(b.plate))) {
+      const label = `${v.plate} — ${[v.make, v.model].filter(Boolean).join(" ") || "car"} — $${(v.rateCents / 100).toFixed(2)}/km${v.active ? "" : " (inactive)"}`;
+      const opt = h("option", { value: String(v.id) }, label) as HTMLOptionElement;
+      opt.selected = v.id === current.vehicleId;
+      select.append(opt);
+    }
+    if (current.vehicleId == null) noneOpt.selected = true;
+  }
+
+  select.onchange = async () => {
+    const vehicleId = Number(select.value);
+    if (!vehicleId || vehicleId === current.vehicleId) return;
+    errEl.textContent = "";
+    try {
+      await api.patchJob(current.id, { vehicleId });
+      const v = vehicles.find((x) => x.id === vehicleId);
+      toast(`Car changed to ${v?.plate ?? "new car"}`);
+      await changed();
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : String(err);
+      renderOptions();
+    }
+  };
+
+  const addToggle = h("button", { class: "btn sm", style: "white-space:nowrap", disabled: locked }, "＋ Add a car");
+  const head = h("div", { class: "row", style: "gap:6px;align-items:center;flex-wrap:wrap" },
+    h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase" }, "Car"),
+    select, addToggle,
+  );
+  head.style.alignItems = "center";
+
+  const plateI = h("input", { class: "neon-input", placeholder: "Plate e.g. ABC123", autocomplete: "off", maxlength: "12" }) as HTMLInputElement;
+  const makeI = h("input", { class: "neon-input", placeholder: "Make (optional)", maxlength: "40" }) as HTMLInputElement;
+  const modelI = h("input", { class: "neon-input", placeholder: "Model (optional)", maxlength: "40" }) as HTMLInputElement;
+  const rateI = h("input", { class: "neon-input", type: "number", step: "0.01", min: "0", placeholder: "$/km e.g. 0.95" }) as HTMLInputElement;
+  const addForm = h("div", { class: "col", style: "gap:6px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)" });
+  const addSave = h("button", { class: "btn sm primary" }, "Add car");
+  const addCancel = h("button", { class: "btn sm ghost", onclick: () => { addForm.style.display = "none"; errEl.textContent = ""; } }, "Cancel");
+
+  addToggle.onclick = () => {
+    if (addForm.style.display === "none") {
+      addForm.style.display = "flex";
+      plateI.focus();
+    } else {
+      addForm.style.display = "none";
+    }
+  };
+
+  addSave.onclick = async () => {
+    const plate = plateI.value.trim();
+    const rate = Number(rateI.value);
+    if (!plate) {
+      errEl.textContent = "Plate is required.";
+      return;
+    }
+    if (!Number.isFinite(rate) || rate < 0) {
+      errEl.textContent = "Enter the km rate in $ (e.g. 0.95).";
+      return;
+    }
+    errEl.textContent = "";
+    addSave.disabled = true;
+    try {
+      const created = await api.createVehicle({
+        plate,
+        make: makeI.value.trim(),
+        model: modelI.value.trim(),
+        rateCents: Math.round(rate * 100),
+        digits: 6,
+        active: true,
+        tierKm: null,
+        tierRateCents: null,
+      });
+      toast(`${created.plate} added`);
+      vehicles = await api.vehicles();
+      renderOptions();
+      if (!locked && current.vehicleId == null) {
+        await api.patchJob(current.id, { vehicleId: created.id });
+        toast(`Car set to ${created.plate}`);
+        await changed();
+        return;
+      }
+      for (const opt of [...select.options]) if (opt.value === String(created.id)) opt.selected = true;
+      addForm.style.display = "none";
+      plateI.value = makeI.value = modelI.value = rateI.value = "";
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : String(err);
+    } finally {
+      addSave.disabled = false;
+    }
+  };
+
+  addForm.append(
+    h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px" },
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Plate"), plateI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Rate"), rateI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Make"), makeI),
+      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Model"), modelI),
+    ),
+    h("div", { class: "row", style: "gap:6px" }, addSave, addCancel),
+  );
+
+  wrap.append(head, hint, errEl, addForm);
+  void load();
+  return wrap;
+}
+
 /** Popup with full, editable details for a trip (used by Review + Log pages). */
 /**
  * Searchable calendar-event linker: shows the linked booking (if any) and lets
  * the user search the synced feed to link, change or unlink this trip.
  */
 function eventLinker(current: JobDto, changed: () => Promise<void>): HTMLElement {
-  let cache: CalEventDto[] | null = null;
-
   const wrap = h("div", { class: "col", style: "gap:6px" });
 
   const label = h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase" }, "Calendar event");
@@ -269,45 +522,62 @@ function eventLinker(current: JobDto, changed: () => Promise<void>): HTMLElement
     summary.textContent = "No calendar event linked";
   }
 
-  // Searchable dropdown
+  async function linkTo(e: CalEventDto): Promise<void> {
+    try {
+      await api.patchJob(current.id, { eventUid: e.uid });
+      toast(`Linked to “${e.summary || "event"}”`);
+      await changed();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "err");
+    }
+  }
+
+  // Search mode --------------------------------------------------------------
   const search = h("input", { class: "neon-input", placeholder: "Search client bookings…", autocomplete: "off" }) as HTMLInputElement;
   const results = h("div", {
     style:
-      "max-height:200px;overflow-y:auto;border:1px solid var(--line-dim);border-radius:var(--r-sm);background:var(--bg-input);display:none",
+      "max-height:210px;overflow-y:auto;border:1px solid var(--line-dim);border-radius:var(--r-sm);background:var(--bg-input)",
   });
-  const hint = h("p", { class: "text-faint", style: "font-size:0.74rem;margin:0" }, "Type to filter — click a booking to link this trip to it.");
-  const panel = h("div", { class: "col", style: "gap:6px;display:none" }, search, results, hint);
+  const searchHint = h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+    "Bookings closest to today are listed first — type a client name to search older bookings too.");
+  const searchBox = h("div", { class: "col", style: "gap:6px" }, search, results, searchHint);
 
   function dayLabel(iso: string | null): string {
     return iso ? iso.slice(0, 10) : "";
   }
 
-  async function ensureEvents(): Promise<void> {
-    if (cache) return;
+  const NEAR_PAST_MS = 3 * 24 * 3600 * 1000;
+  const NEAR_FUTURE_MS = 35 * 24 * 3600 * 1000;
+  let nearCache: CalEventDto[] | null = null;
+  let fullCache: CalEventDto[] | null = null;
+  let searchSeq = 0;
+
+  async function loadNear(): Promise<CalEventDto[]> {
+    if (nearCache) return nearCache;
+    const now = Date.now();
+    const events = await api
+      .calendarEvents(new Date(now - NEAR_PAST_MS).toISOString(), new Date(now + NEAR_FUTURE_MS).toISOString())
+      .catch(() => null);
+    nearCache = events ?? [];
+    return nearCache;
+  }
+
+  async function loadFull(): Promise<CalEventDto[]> {
+    if (fullCache) return fullCache;
     const from = new Date();
     from.setFullYear(from.getFullYear() - 2);
     const to = new Date();
     to.setFullYear(to.getFullYear() + 2);
-    cache = await api.calendarEvents(from.toISOString(), to.toISOString()).catch(() => []);
+    fullCache = await api.calendarEvents(from.toISOString(), to.toISOString()).catch(() => null);
+    return fullCache ?? [];
   }
 
   function clearResults(): void {
     while (results.firstChild) results.removeChild(results.firstChild);
   }
 
-  function renderMatches(): void {
-    clearResults();
-    if (!cache) return;
-    const q = search.value.trim().toLowerCase();
-    const matches = cache!
-      .filter((e) => !q || `${e.summary} ${e.location}`.toLowerCase().includes(q))
-      .sort((a, b) => ((a.startAt ?? "") < (b.startAt ?? "") ? -1 : 1))
-      .slice(0, 40);
-    if (matches.length === 0) {
-      results.append(h("div", { class: "text-dim", style: "padding:10px;font-size:0.85rem" }, "No matching bookings — try another search or check the calendar link in Settings."));
-      return;
-    }
-    for (const e of matches) {
+  function appendRows(list: CalEventDto[]): void {
+    for (const e of list) {
       const isCurrent = current.eventUid === e.uid;
       const row = h("button", {
         class: "btn",
@@ -319,32 +589,226 @@ function eventLinker(current: JobDto, changed: () => Promise<void>): HTMLElement
             [dayLabel(e.startAt), e.allDay ? "all day" : null, e.location].filter(Boolean).join(" • ")),
         ),
       );
-      row.onclick = async () => {
-        try {
-          await api.patchJob(current.id, { eventUid: e.uid });
-          toast(`Linked to “${e.summary || "event"}”`);
-          await changed();
-        } catch (err) {
-          toast(err instanceof Error ? err.message : String(err), "err");
-        }
-      };
+      row.onclick = () => void linkTo(e);
       results.append(row);
     }
   }
 
+  function emptyState(text: string): void {
+    results.append(h("div", { class: "text-dim", style: "padding:10px;font-size:0.85rem" }, text));
+  }
+
+  async function renderMatches(): Promise<void> {
+    const q = search.value.trim().toLowerCase();
+    const seq = ++searchSeq;
+    clearResults();
+    if (!q) {
+      if (!nearCache) emptyState("Loading the closest bookings…");
+      const near = await loadNear();
+      if (seq !== searchSeq) return;
+      clearResults();
+      if (near.length === 0) {
+        emptyState("No bookings around today — type a client name to search the whole calendar.");
+        return;
+      }
+      const byCloseness = [...near]
+        .filter((e) => e.startAt != null)
+        .sort(
+          (a, b) =>
+            Math.abs(Date.parse(a.startAt!) - Date.now()) - Math.abs(Date.parse(b.startAt!) - Date.now()) ||
+            (a.startAt! < b.startAt! ? -1 : 1),
+        )
+        .slice(0, 40);
+      appendRows(byCloseness);
+      return;
+    }
+    if (!fullCache) emptyState("Searching the whole calendar…");
+    const full = await loadFull();
+    if (seq !== searchSeq) return;
+    clearResults();
+    const matches = full
+      .filter((e) => `${e.summary} ${e.location}`.toLowerCase().includes(q))
+      .sort((a, b) => ((a.startAt ?? "") < (b.startAt ?? "") ? -1 : 1))
+      .slice(0, 40);
+    if (matches.length === 0) {
+      emptyState("No matching bookings — check the calendar link in Settings.");
+      return;
+    }
+    appendRows(matches);
+  }
+
+  // Calendar (month browse) mode --------------------------------------------
+  const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+  const today = new Date();
+  let view = { year: today.getFullYear(), month: today.getMonth() };
+  const monthCache = new Map<string, CalEventDto[]>();
+  const calHead = h("div", { class: "row", style: "gap:6px;align-items:center" });
+  const calLabel = h("span", { style: "font-weight:600;font-size:0.9rem;flex:1;text-align:center;white-space:nowrap" });
+  const calPrev = h("button", { class: "btn sm", title: "Previous month" }, "‹");
+  const calNext = h("button", { class: "btn sm", title: "Next month" }, "›");
+  const calToday = h("button", { class: "btn sm outline", style: "white-space:nowrap" }, "Today");
+  calHead.append(calPrev, calLabel, calNext, calToday);
+
+  const calGrid = h("div", {
+    style:
+      "display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line-dim);border:1px solid var(--line-dim);border-radius:var(--r-sm);overflow:hidden;max-height:230px;overflow-y:auto",
+  });
+  const calHint = h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+    "Click a booking to link this trip to it — linked bookings are marked ✓.");
+  const calBox = h("div", { class: "col", style: "gap:6px;display:none" }, calHead, calGrid, calHint);
+
+  function localDayOf(date: Date): string {
+    const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function monthSpan(): { from: Date; to: Date } {
+    const from = new Date(view.year, view.month, 1, 0, 0, 0, 0);
+    const to = new Date(view.year, view.month + 1, 0, 23, 59, 59, 999);
+    return { from, to };
+  }
+
+  async function loadMonth(): Promise<CalEventDto[]> {
+    const key = `${view.year}-${view.month}`;
+    const cached = monthCache.get(key);
+    if (cached) return cached;
+    const { from, to } = monthSpan();
+    const events = await api.calendarEvents(from.toISOString(), to.toISOString()).catch(() => [] as CalEventDto[]);
+    monthCache.set(key, events);
+    return events;
+  }
+
+  async function renderCal(): Promise<void> {
+    while (calGrid.firstChild) calGrid.removeChild(calGrid.firstChild);
+    calLabel.textContent = new Date(view.year, view.month, 1).toLocaleString("en-NZ", { month: "long", year: "numeric" });
+    const events = (await loadMonth()).filter((e) => e.startAt != null);
+    const byDay = new Map<string, CalEventDto[]>();
+    for (const e of events) {
+      const day = e.startAt!.slice(0, 10);
+      const list = byDay.get(day) ?? [];
+      list.push(e);
+      byDay.set(day, list);
+    }
+
+    for (const wd of WEEKDAYS) {
+      calGrid.append(h("div", { style: "background:var(--bg-raised);color:var(--fg-faint);font-size:0.6rem;font-weight:700;text-align:center;padding:3px 0;position:sticky;top:0" }, wd));
+    }
+
+    const first = new Date(view.year, view.month, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const todayStr = localDayOf(new Date());
+    const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+    for (let i = 0; i < offset; i++) calGrid.append(h("div", {}));
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(view.year, view.month, d);
+      const key = localDayOf(day);
+      const list = (byDay.get(key) ?? []).slice().sort((a, b) => (a.startAt! < b.startAt! ? -1 : 1));
+      const cell = h("div", {
+        style:
+          `background:var(--bg-panel);min-height:${list.length ? "58px" : "38px"};padding:3px;display:flex;flex-direction:column;gap:2px`,
+      });
+      const isToday = key === todayStr;
+      const num = h("span", {
+        style: isToday
+          ? "font-size:0.66rem;color:#04211c;background:var(--accent);border-radius:999px;width:17px;height:17px;display:flex;align-items:center;justify-content:center;font-weight:700;margin-left:auto"
+          : "font-size:0.66rem;color:var(--fg-dim);font-weight:600;margin-left:auto",
+      }, String(d));
+      cell.append(h("div", { style: "display:flex;justify-content:flex-end" }, num));
+
+      const visible = list.slice(0, 2);
+      for (const e of visible) {
+        const isCurrent = current.eventUid === e.uid;
+        const chip = h("button", {
+          class: "btn sm",
+          title: `${e.summary || "Event"}${e.location ? ` — ${e.location}` : ""}`,
+          style: `justify-content:flex-start;width:100%;padding:1px 5px;font-size:0.62rem;font-weight:600;border-radius:var(--r-xs);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isCurrent ? "background:var(--accent-soft);border-color:rgba(20,184,166,0.5);color:var(--accent)" : "border-color:var(--line);color:var(--fg-dim)"}`,
+        }, `${isCurrent ? "✓ " : ""}${e.summary || "Event"}`);
+        chip.onclick = () => void linkTo(e);
+        cell.append(chip);
+      }
+      if (list.length > 2) {
+        const more = h("button", { class: "btn sm ghost", style: "padding:1px 5px;font-size:0.6rem;border-radius:var(--r-xs);justify-content:center" }, `+${list.length - 2} more`);
+        more.onclick = () => openDayList(key, list);
+        cell.append(more);
+      }
+      calGrid.append(cell);
+    }
+  }
+
+  function openDayList(day: string, list: CalEventDto[]): void {
+    const body = h("div", { class: "col" });
+    const dayModal = showModal({ title: `${day} — ${list.length} booking(s)`, body });
+    for (const e of [...list].sort((a, b) => (a.startAt! < b.startAt! ? -1 : 1))) {
+      const isCurrent = current.eventUid === e.uid;
+      const row = h("button", {
+        class: "btn",
+        style: `justify-content:space-between;width:100%;text-align:left;${isCurrent ? "border-color:rgba(20,184,166,0.5);color:var(--accent)" : ""}`,
+      },
+        h("div", { class: "col", style: "gap:1px;min-width:0" },
+          h("span", { style: "font-weight:600" }, `${isCurrent ? "✓ " : ""}${e.summary || "Event"}`),
+          h("span", { class: "text-dim", style: "font-size:0.74rem" }, e.location || "no address"),
+        ),
+        h("span", { class: "text-dim mono", style: "font-size:0.72rem" }, e.startAt ? e.startAt.slice(11, 16) : "all day"),
+      );
+      row.onclick = () => {
+        dayModal.close();
+        void linkTo(e);
+      };
+      body.append(row);
+    }
+  }
+
+  // Panel chrome --------------------------------------------------------------
+  const modeBar = h("div", { class: "row", style: "gap:4px" });
+  const searchTab = h("button", { class: "btn sm" }, "Search");
+  const calTab = h("button", { class: "btn sm ghost" }, "Browse calendar");
+  modeBar.append(searchTab, calTab);
+
+  const panel = h("div", { class: "col", style: "gap:8px;display:none" }, modeBar, searchBox, calBox);
+
+  function setMode(mode: "search" | "cal"): void {
+    const searching = mode === "search";
+    searchTab.className = `btn sm${searching ? " preset-on" : " ghost"}`;
+    calTab.className = `btn sm${searching ? " ghost" : " preset-on"}`;
+    searchBox.style.display = searching ? "flex" : "none";
+    calBox.style.display = searching ? "none" : "flex";
+    if (searching) {
+      search.focus();
+      void renderMatches();
+    } else {
+      void renderCal();
+    }
+  }
+  searchTab.onclick = () => setMode("search");
+  calTab.onclick = () => setMode("cal");
+  calPrev.onclick = () => {
+    const d = new Date(view.year, view.month - 1, 1);
+    view = { year: d.getFullYear(), month: d.getMonth() };
+    void renderCal();
+  };
+  calNext.onclick = () => {
+    const d = new Date(view.year, view.month + 1, 1);
+    view = { year: d.getFullYear(), month: d.getMonth() };
+    void renderCal();
+  };
+  calToday.onclick = () => {
+    const d = new Date();
+    view = { year: d.getFullYear(), month: d.getMonth() };
+    void renderCal();
+  };
+
   async function openPanel(): Promise<void> {
     if (panel.style.display === "none") {
       panel.style.display = "flex";
-      await ensureEvents();
-      renderMatches();
-      search.focus();
+      setMode("search");
     } else {
       panel.style.display = "none";
     }
   }
 
   changeBtn.onclick = () => void openPanel();
-  search.oninput = renderMatches;
+  search.oninput = () => void renderMatches();
   search.onkeydown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       panel.style.display = "none";
@@ -399,6 +863,7 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
       current.paidAt ? h("span", { class: "badge muted" }, `paid ${current.paidAt.slice(0, 10)}`) : null,
     );
 
+    const car = vehiclePicker(current, changed);
     const linker = eventLinker(current, changed);
 
     async function captureFor(role: "start" | "end"): Promise<void> {
@@ -468,6 +933,7 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
 
     return h("div", { class: "col", style: "gap:12px" },
       chips,
+      car,
       linker,
       h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px" },
         h("div", { class: "field", style: "margin:0" }, h("label", {}, "Client / purpose"), client),

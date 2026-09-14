@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File .\run-judetracker.ps1   # -Rebuild / -D
 
 Every setting has a sane default and can be overridden with a local `.env` (see `.env.example`): `APP_PORT`, `POSTGRES_USER/PASSWORD/DB`, `COOKIE_SECURE`. The database port is bound to localhost only; the app port is the one to expose if you put a reverse proxy in front.
 
-**Persistent data lives in Docker volumes** (`db_data`, `jt_data` for photos) — back them up, not the containers.
+**Persistent data lives in Docker volumes** (`db_data`, `jt_data` for photos) — back them up, not the containers. Photo uploads accept any phone format (HEIC/HEIF included) and are normalized server-side to a single 1920px JPEG + thumbnail, so originals aren't kept and the photo volume stays small.
 
 ### Deploy on a server (prebuilt image)
 

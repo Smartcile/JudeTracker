@@ -24,6 +24,7 @@
     "drizzle-orm": "^0.44.3",
     "exifr": "^7.1.3",
     "express": "^5.1.0",
+    "heic-decode": "^2.1.0",
     "multer": "^2.0.1",
     "node-ical": "^0.20.1",
     "pg": "^8.16.3",
