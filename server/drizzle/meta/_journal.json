@@ -43,6 +43,13 @@
       "when": 1789370120552,
       "tag": "0005_mysterious_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789373245337,
+      "tag": "0006_fearless_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }

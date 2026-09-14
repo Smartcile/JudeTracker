@@ -176,7 +176,7 @@ jobsRouter.post("/:id/return-log", async (req, res) => {
 
   const values = buildReturnLog({
     vehicleId: job.job.vehicleId,
-    homeBase: { lat: settings.homeBaseLat, lng: settings.homeBaseLng },
+    homeBase: { address: settings.homeBaseAddress, lat: settings.homeBaseLat, lng: settings.homeBaseLng },
     arriveAt: arrive,
   });
 

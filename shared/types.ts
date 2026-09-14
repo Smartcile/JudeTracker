@@ -18,6 +18,7 @@ export interface LogDto {
   takenAt: string;
   lat: number | null;
   lng: number | null;
+  locationLabel: string;
   accuracy: number | null;
   gpsSource: "live" | "exif" | "manual" | "none";
   readingKm: number | null;

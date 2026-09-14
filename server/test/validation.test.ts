@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobCreateBody, jobPatchBody, logPatchBody, placeBody, returnLogBody, settingsBody } from "../src/lib/validation.ts";
+import { jobCreateBody, jobPatchBody, logFields, logPatchBody, placeBody, returnLogBody, settingsBody } from "../src/lib/validation.ts";
 
 describe("jobPatchBody", () => {
   it("accepts jobDate in YYYY-MM-DD", () => {
@@ -76,6 +76,24 @@ describe("logPatchBody", () => {
 
   it("accepts an empty patch and lets the route say nothing-to-update", () => {
     expect(logPatchBody.parse({})).toEqual({});
+  });
+
+  it("accepts a location label on its own", () => {
+    expect(logPatchBody.parse({ locationLabel: "  12 Kowhai Rd  " }).locationLabel).toBe("12 Kowhai Rd");
+  });
+
+  it("rejects an over-long location label", () => {
+    expect(() => logPatchBody.parse({ locationLabel: "x".repeat(201) })).toThrow();
+  });
+});
+
+describe("logFields", () => {
+  it("defaults the location label to empty", () => {
+    expect(logFields.parse({}).locationLabel).toBe("");
+  });
+
+  it("keeps a picked place's label", () => {
+    expect(logFields.parse({ locationLabel: "1 Home Rd" }).locationLabel).toBe("1 Home Rd");
   });
 });
 

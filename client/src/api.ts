@@ -77,6 +77,17 @@ export const api = {
   geocode: (query: string) =>
     request<{ results: GeocodeResultDto[] }>(`/api/geocode?${new URLSearchParams({ q: query })}`),
 
+  /** Road (driving) distance in whole km between two points; cached server-side. */
+  distanceKm: (fromLat: number, fromLng: number, toLat: number, toLng: number) =>
+    request<{ km: number }>(
+      `/api/distance?${new URLSearchParams({
+        fromLat: String(fromLat),
+        fromLng: String(fromLng),
+        toLat: String(toLat),
+        toLng: String(toLng),
+      })}`,
+    ),
+
   places: () => request<PlaceDto[]>("/api/places"),
   createPlace: (body: { name: string; address: string; lat: number; lng: number }) =>
     request<PlaceDto>("/api/places", json("POST", body)),
@@ -146,9 +157,11 @@ export const api = {
     return request<{ ok: boolean; log: JobDto["startLog"] }>(`/api/logs/${logId}/photo`, { method: "PUT", body: form });
   },
   deleteLog: (logId: number) => request<{ ok: boolean }>(`/api/logs/${logId}`, json("DELETE")),
-  /** Override a log's timestamp and/or coordinates (manual GPS entry). */
-  patchLog: (logId: number, body: { takenAt?: string; lat?: number | null; lng?: number | null }) =>
-    request<{ ok: boolean; log: JobDto["startLog"] }>(`/api/logs/${logId}`, json("PATCH", body)),
+  /** Override a log's timestamp, coordinates and/or location label (manual GPS entry). */
+  patchLog: (
+    logId: number,
+    body: { takenAt?: string; lat?: number | null; lng?: number | null; locationLabel?: string },
+  ) => request<{ ok: boolean; log: JobDto["startLog"] }>(`/api/logs/${logId}`, json("PATCH", body)),
 
   claimSummary: (from?: string, to?: string) =>
     request<ClaimSummaryDto>(

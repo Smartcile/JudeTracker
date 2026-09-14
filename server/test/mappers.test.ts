@@ -28,6 +28,7 @@ function logRow(id: number, readingKm: number | null, partial: Partial<LogRow> =
     takenAt: t(`2026-09-0${id}T0${id}:00:00Z`),
     lat: null,
     lng: null,
+    locationLabel: "",
     accuracy: null,
     gpsSource: "none",
     readingKm,
@@ -75,11 +76,12 @@ describe("toVehicle", () => {
 });
 
 describe("toLog", () => {
-  it("includes the hasPhoto flag and a resolved plate", () => {
-    const log = toLog(logRow(1, 100000), new Map([[1, "ABC123"]]));
+  it("includes the hasPhoto flag, location label and a resolved plate", () => {
+    const log = toLog(logRow(1, 100000, { locationLabel: "12 Kowhai Rd" }), new Map([[1, "ABC123"]]));
     expect(log.hasPhoto).toBe(true);
     expect(log.vehiclePlate).toBe("ABC123");
     expect(log.readingKm).toBe(100000);
+    expect(log.locationLabel).toBe("12 Kowhai Rd");
   });
 });
 

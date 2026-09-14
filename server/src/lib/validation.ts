@@ -103,6 +103,7 @@ export const logPatchBody = z
     takenAt: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "Invalid timestamp").optional(),
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),
+    locationLabel: z.string().trim().max(200).optional(),
   })
   .refine(
     (v) =>
@@ -147,6 +148,7 @@ export const logFields = z.object({
   takenAt: z.string().optional(),
   lat: z.coerce.number().min(-90).max(90).nullable().optional(),
   lng: z.coerce.number().min(-180).max(180).nullable().optional(),
+  locationLabel: z.string().trim().max(200).default(""),
   accuracy: z.coerce.number().nonnegative().nullable().optional(),
   gpsSource: z.enum(["live", "exif", "manual", "none"]).default("none"),
 });

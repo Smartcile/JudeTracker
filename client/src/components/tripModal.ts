@@ -122,11 +122,15 @@ function readingSlot(
     }
   };
 
+  const locationLine = log.locationLabel || log.lat != null
+    ? h("span", { class: "text-faint", style: "font-size:0.72rem;margin-top:-2px" }, log.locationLabel || fmtLatLng(log.lat, log.lng))
+    : null;
   slot.append(
     h("div", { class: "row spread" },
       h("span", { style: "font-weight:600;font-size:0.85rem" }, label),
       h("span", { class: "text-faint mono", style: "font-size:0.72rem" }, fmtWhen(log.takenAt)),
     ),
+    ...(locationLine ? [locationLine] : []),
     media,
     h("div", { class: "row spread" }, reading, h("div", { class: "row", style: "gap:4px" }, edit, del)),
     ...(locked ? [] : [logDetailsControls(role, log, job, eventPromise, settingsPromise, changed)]),
@@ -234,6 +238,18 @@ function logDetailsControls(
     distance.el.addEventListener("input", sync);
     distance.el.addEventListener("change", sync);
     sync();
+    const from = job.endLog;
+    if (log.readingKm == null && from?.lat != null && from.lng != null && log.lat != null && log.lng != null) {
+      void api
+        .distanceKm(from.lat, from.lng, log.lat, log.lng)
+        .then(({ km }) => {
+          if (distance.value() == null) {
+            distance.set(km);
+            sync();
+          }
+        })
+        .catch(() => undefined);
+    }
   }
 
   const eventSlot = h("div", { class: "row" });
@@ -246,7 +262,7 @@ function logDetailsControls(
 
   function reset(): void {
     timing.setArrival(log.takenAt);
-    picker.set(log.lat != null && log.lng != null ? { lat: log.lat, lng: log.lng, label: "" } : null);
+    picker.set(log.lat != null && log.lng != null ? { lat: log.lat, lng: log.lng, label: log.locationLabel } : null);
     errEl.textContent = "";
   }
 
@@ -260,7 +276,7 @@ function logDetailsControls(
   const cancel = h("button", { class: "btn sm ghost", onclick: () => { panel.style.display = "none"; reset(); } }, "Cancel");
   save.onclick = async () => {
     errEl.textContent = "";
-    const body: { takenAt?: string; lat?: number | null; lng?: number | null } = {};
+    const body: { takenAt?: string; lat?: number | null; lng?: number | null; locationLabel?: string } = {};
     const iso = timing.iso();
     if (Math.floor(new Date(iso).getTime() / 60_000) !== Math.floor(new Date(log.takenAt).getTime() / 60_000)) {
       body.takenAt = iso;
@@ -277,10 +293,14 @@ function logDetailsControls(
       if (!roundedSame) {
         body.lat = place.lat;
         body.lng = place.lng;
+        body.locationLabel = place.label;
+      } else if (place.label && place.label !== log.locationLabel) {
+        body.locationLabel = place.label;
       }
     } else if (hasGps) {
       body.lat = null;
       body.lng = null;
+      body.locationLabel = "";
     }
 
     let readingTarget: number | null = null;
@@ -290,14 +310,14 @@ function logDetailsControls(
     }
     const readingChanged = readingTarget != null && readingTarget !== log.readingKm;
 
-    if (body.takenAt === undefined && body.lat === undefined && !readingChanged) {
+    if (body.takenAt === undefined && body.lat === undefined && body.locationLabel === undefined && !readingChanged) {
       toast("No changes to save");
       return;
     }
     save.disabled = true;
     try {
       if (readingChanged && readingTarget != null) await api.setReading(log.id, readingTarget);
-      if (body.takenAt !== undefined || body.lat !== undefined) await api.patchLog(log.id, body);
+      if (body.takenAt !== undefined || body.lat !== undefined || body.locationLabel !== undefined) await api.patchLog(log.id, body);
       toast(role === "start" && body.takenAt ? "Saved — the trip date follows the start log" : "Log updated");
       await changed();
     } catch (err) {
@@ -315,7 +335,7 @@ function logDetailsControls(
     ...(distanceField ? [distanceField] : []),
     h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), picker.el),
     h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
-      `GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Pick an address to replace it (stored as manual); clear the location to remove the point.`),
+      `${log.locationLabel ? `${log.locationLabel} — ` : ""}GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Pick an address to replace it (stored as manual); clear the location to remove the point.`),
     h("div", { class: "row", style: "gap:6px" }, save, cancel),
     errEl,
   );
@@ -356,7 +376,7 @@ function driveHomeSection(
     }
     const departDefault = event?.endAt ?? current.endLog?.takenAt ?? null;
     const btn = h("button", { class: "btn sm", style: "white-space:nowrap" }, "＋ Log drive home");
-    btn.onclick = () => openReturnTripModal(current, departDefault, changed);
+    btn.onclick = () => openReturnTripModal(current, departDefault, settings, changed);
     box.append(
       h("div", { class: "row spread", style: "gap:8px;align-items:center" },
         h("div", { class: "col", style: "gap:1px;min-width:0" },
@@ -370,7 +390,12 @@ function driveHomeSection(
   return box;
 }
 
-function openReturnTripModal(job: JobDto, departDefaultIso: string | null, changed: () => Promise<void>): void {
+function openReturnTripModal(
+  job: JobDto,
+  departDefaultIso: string | null,
+  settings: SettingsDto,
+  changed: () => Promise<void>,
+): void {
   const departI = h("input", {
     class: "neon-input",
     type: "datetime-local",
@@ -382,6 +407,7 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
   const arriveEl = h("p", { class: "text-dim", style: "font-size:0.8rem;margin:0" });
   const distanceEl = h("p", { class: "text-dim", style: "font-size:0.8rem;margin:0" });
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem;margin:0" });
+  let roadKm: number | null = null;
 
   const departureIso = (): string => fromLocalInput(departI.value) ?? new Date().toISOString();
   const arrivalIso = (): string => shiftIsoMinutes(departureIso(), travel.value() ?? 0);
@@ -392,10 +418,11 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
       return;
     }
     const km = distance?.value() ?? null;
+    const road = roadKm != null ? `Road distance ${roadKm} km. ` : "";
     distanceEl.textContent =
       km == null
-        ? `Distance not set — the return reading stays blank until you dial it (client reading ${pad(baseKm, 6)}).`
-        : `Reading at home: ${pad(baseKm + km, 6)} (client ${pad(baseKm, 6)} + ${km} km)`;
+        ? `${road}Distance not set — the return reading stays blank until you dial it (client reading ${pad(baseKm, 6)}).`
+        : `${road}Reading at home: ${pad(baseKm + km, 6)} (client ${pad(baseKm, 6)} + ${km} km)`;
   };
   departI.oninput = refresh;
   travel.el.addEventListener("input", refresh);
@@ -403,6 +430,17 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
   if (distance) {
     distance.el.addEventListener("input", refresh);
     distance.el.addEventListener("change", refresh);
+    const from = job.endLog;
+    if (from?.lat != null && from.lng != null && settings.homeBaseLat != null && settings.homeBaseLng != null) {
+      void api
+        .distanceKm(from.lat, from.lng, settings.homeBaseLat, settings.homeBaseLng)
+        .then(({ km }) => {
+          roadKm = km;
+          if (distance.value() == null) distance.set(km);
+          refresh();
+        })
+        .catch(() => undefined);
+    }
   }
   refresh();
 
@@ -459,10 +497,13 @@ function onwardSection(current: JobDto, refresh: () => Promise<void>, close: () 
     btn.disabled = true;
     try {
       const next = await api.createNextTrip(current.id);
-      close();
       toast("New trip added — starts where this one ended");
       await refresh();
-      openTripModal(next, refresh);
+      try {
+        openTripModal(next, refresh);
+      } finally {
+        close();
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "err");
       btn.disabled = false;
@@ -1045,16 +1086,20 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
     }
   }
 
-  /** Refresh page data and reopen this modal with the freshest job. */
+  /** Refresh page data and swap this modal for one built from the freshest job. */
   async function changed(): Promise<void> {
-    modal.close();
+    const previous = modal;
     try {
       await refresh();
     } catch {
       /* page-level refresh handled by caller */
     }
     const updated = await fetchJob();
-    if (updated) openTripModal(updated, refresh);
+    try {
+      if (updated) openTripModal(updated, refresh);
+    } finally {
+      previous.close();
+    }
   }
 
   function build(current: JobDto): HTMLElement {
@@ -1110,6 +1155,11 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
     const saveDetails = h("button", { class: "btn", style: "align-self:flex-end" }, "Save details");
     saveDetails.onclick = async () => {
       errEl.textContent = "";
+      const name = client.value.trim();
+      if (!name) {
+        errEl.textContent = "Client / purpose can't be empty — give the trip a name.";
+        return;
+      }
       const pickErr = picker.error();
       if (pickErr) {
         errEl.textContent = pickErr;
@@ -1121,7 +1171,7 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
         location?: string;
         locationLat?: number | null;
         locationLng?: number | null;
-      } = { client: client.value.trim(), notes: notes.value.trim() };
+      } = { client: name, notes: notes.value.trim() };
       if (picker.touched()) {
         const place = picker.get();
         if (place) {

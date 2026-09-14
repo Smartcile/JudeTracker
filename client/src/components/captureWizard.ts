@@ -158,6 +158,7 @@ export async function openCaptureWizard(ctx: CaptureContext, onDone: () => Promi
       if (usePicked) {
         fields.lat = place.lat;
         fields.lng = place.lng;
+        fields.locationLabel = place.label;
         fields.gpsSource = "manual";
       } else if (lat != null && lng != null) {
         fields.lat = lat;

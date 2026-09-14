@@ -120,6 +120,7 @@ describe("personal-use baseline", () => {
       takenAt,
       lat: null,
       lng: null,
+      locationLabel: "",
       accuracy: null,
       gpsSource: "none",
       readingKm,

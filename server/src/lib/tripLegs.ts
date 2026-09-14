@@ -6,6 +6,7 @@ export interface ReturnLogValues {
   takenAt: Date;
   lat: number | null;
   lng: number | null;
+  locationLabel: string;
   accuracy: null;
   gpsSource: "manual";
   hasPhoto: false;
@@ -18,7 +19,7 @@ export interface ReturnLogValues {
  */
 export function buildReturnLog(input: {
   vehicleId: number | null;
-  homeBase: { lat: number; lng: number };
+  homeBase: { address: string; lat: number; lng: number };
   arriveAt: Date;
 }): ReturnLogValues {
   return {
@@ -26,6 +27,7 @@ export function buildReturnLog(input: {
     takenAt: input.arriveAt,
     lat: input.homeBase.lat,
     lng: input.homeBase.lng,
+    locationLabel: input.homeBase.address || "Home base",
     accuracy: null,
     gpsSource: "manual",
     hasPhoto: false,
@@ -49,6 +51,7 @@ export interface NextTripValues {
     takenAt: Date;
     lat: number | null;
     lng: number | null;
+    locationLabel: string;
     accuracy: null;
     gpsSource: "manual" | "none";
     hasPhoto: false;
@@ -62,9 +65,9 @@ export interface NextTripValues {
  * event, so the original booking still maps to one trip.
  */
 export function buildNextTrip(input: {
-  job: Pick<JobRow, "vehicleId" | "locationLat" | "locationLng">;
+  job: Pick<JobRow, "vehicleId" | "location" | "locationLat" | "locationLng">;
   /** The trip's last log: the return (home) reading when there is one, else the client arrival. */
-  fromLog: Pick<LogRow, "vehicleId" | "takenAt" | "lat" | "lng" | "readingKm"> | undefined;
+  fromLog: Pick<LogRow, "vehicleId" | "takenAt" | "lat" | "lng" | "locationLabel" | "readingKm"> | undefined;
   now: Date;
   timezone: string;
 }): NextTripValues {
@@ -72,6 +75,7 @@ export function buildNextTrip(input: {
   const lat = input.fromLog?.lat ?? input.job.locationLat ?? null;
   const lng = input.fromLog?.lng ?? input.job.locationLng ?? null;
   const hasPoint = lat != null && lng != null;
+  const locationLabel = input.fromLog?.locationLabel || input.job.location || "";
   const vehicleId = input.job.vehicleId ?? input.fromLog?.vehicleId ?? null;
   return {
     job: {
@@ -90,6 +94,7 @@ export function buildNextTrip(input: {
       takenAt,
       lat: hasPoint ? lat : null,
       lng: hasPoint ? lng : null,
+      locationLabel,
       accuracy: null,
       gpsSource: hasPoint ? "manual" : "none",
       hasPhoto: false,

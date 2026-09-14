@@ -30,6 +30,7 @@ export function toLog(log: LogRow, plateByVehicle?: Map<number, string>): LogDto
     takenAt: log.takenAt.toISOString(),
     lat: log.lat,
     lng: log.lng,
+    locationLabel: log.locationLabel,
     accuracy: log.accuracy,
     gpsSource: (log.gpsSource ?? "none") as LogDto["gpsSource"],
     readingKm: log.readingKm,

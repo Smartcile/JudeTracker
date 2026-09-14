@@ -9,6 +9,7 @@ import { settingsRouter } from "./routes/settings.ts";
 import { vehiclesRouter } from "./routes/vehicles.ts";
 import { calendarRouter } from "./routes/calendar.ts";
 import { geocodeRouter } from "./routes/geocode.ts";
+import { distanceRouter } from "./routes/distance.ts";
 import { jobsRouter } from "./routes/jobs.ts";
 import { jobsLogsRouter, logsRouter } from "./routes/logs.ts";
 import { placesRouter } from "./routes/places.ts";
@@ -29,6 +30,7 @@ export function createApp(): Express {
   app.use("/api/vehicles", vehiclesRouter);
   app.use("/api/calendar", calendarRouter);
   app.use("/api/geocode", geocodeRouter);
+  app.use("/api/distance", distanceRouter);
   app.use("/api/places", placesRouter);
   app.use("/api", jobsLogsRouter);
   app.use("/api/jobs", jobsRouter);

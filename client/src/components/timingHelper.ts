@@ -89,7 +89,11 @@ export function lastDistanceKm(): number | null {
 }
 
 /** 5-km distance picker with a custom km fallback (mirrors the travel-time picker). */
-export function distanceSelect(initial: number | null): { el: HTMLElement; value(): number | null } {
+export function distanceSelect(initial: number | null): {
+  el: HTMLElement;
+  value(): number | null;
+  set(value: number | null): void;
+} {
   const select = h("select", { class: "neon-input" }) as HTMLSelectElement;
   select.append(h("option", { value: "" }, "— none —") as HTMLOptionElement);
   for (let km = 5; km <= 300; km += 5) {
@@ -141,7 +145,28 @@ export function distanceSelect(initial: number | null): { el: HTMLElement; value
   };
 
   const el = h("div", { class: "col", style: "gap:4px" }, select, custom);
-  return { el, value: readValue };
+  return {
+    el,
+    value: readValue,
+    set(value: number | null): void {
+      if (value == null) {
+        select.value = "";
+        custom.value = "";
+        custom.style.display = "none";
+        return;
+      }
+      const n = Math.max(1, Math.min(2000, Math.round(value)));
+      if (n % 5 === 0 && n >= 5 && n <= 300) {
+        select.value = String(n);
+        custom.style.display = "none";
+      } else {
+        select.value = CUSTOM;
+        custom.value = String(n);
+        custom.style.display = "block";
+      }
+      localStorage.setItem(LAST_DISTANCE_KEY, String(n));
+    },
+  };
 }
 
 /**

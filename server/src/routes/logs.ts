@@ -156,6 +156,7 @@ jobsLogsRouter.post("/jobs/:id/logs", upload.single("photo"), async (req, res) =
       takenAt,
       lat: lat ?? null,
       lng: lng ?? null,
+      locationLabel: fields.locationLabel,
       accuracy,
       gpsSource,
       hasPhoto: req.file != null,
@@ -276,8 +277,11 @@ logsRouter.patch("/:id", async (req, res) => {
     const hasCoords = body.lat != null;
     updates.lat = hasCoords ? body.lat : null;
     updates.lng = hasCoords ? body.lng : null;
+    updates.locationLabel = hasCoords ? body.locationLabel ?? "" : "";
     updates.accuracy = null;
     updates.gpsSource = hasCoords ? "manual" : "none";
+  } else if (body.locationLabel !== undefined) {
+    updates.locationLabel = body.locationLabel;
   }
 
   httpAssert(Object.keys(updates).length > 0, 400, "Nothing to update");

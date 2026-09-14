@@ -58,12 +58,19 @@ export const calendarEvents = pgTable("calendar_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("calendar_events_uid_uq").on(t.uid)]);
 
+export const routeCache = pgTable("route_cache", {
+  key: text("key").primaryKey(),
+  km: integer("km").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const logs = pgTable("logs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   vehicleId: integer("vehicle_id").references(() => vehicles.id),
   takenAt: timestamp("taken_at", { withTimezone: true }).notNull(),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
+  locationLabel: text("location_label").notNull().default(""),
   accuracy: integer("accuracy"),
   gpsSource: text("gps_source").notNull().default("none"),
   readingKm: integer("reading_km"),
