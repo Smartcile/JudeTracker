@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { ClaimRowDto } from "../../../shared/types.ts";
-import { computeClaim } from "../../../shared/claims.ts";
+import { computeClaim, tripEndKm } from "../../../shared/claims.ts";
 import { loadJobs } from "../services/jobs.ts";
 
 export const exportRouter = Router();
@@ -17,7 +17,7 @@ export async function exportCsv(from?: string, to?: string): Promise<string> {
   for (const a of await loadJobs(true)) {
     if (a.job.tripKind === "personal") continue; // business claim ledger only
     const start = a.startLog?.readingKm ?? null;
-    const end = a.endLog?.readingKm ?? null;
+    const end = tripEndKm(a.endLog?.readingKm ?? null, a.returnLog);
     const rateCents = a.job.rateCents ?? a.vehicle?.rateCents ?? null;
     const { km, amountCents } = computeClaim(start, end, rateCents);
     if (km == null) continue;

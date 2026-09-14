@@ -2,6 +2,7 @@ import { h } from "../dom.ts";
 import { shiftIsoMinutes } from "../../../shared/time.ts";
 
 const LAST_TRAVEL_KEY = "jt:lastTravelMinutes";
+const LAST_DISTANCE_KEY = "jt:lastDistanceKm";
 const CUSTOM = "custom";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -74,6 +75,69 @@ export function travelTimeSelect(initial: number | null): { el: HTMLElement; val
   custom.oninput = () => {
     const value = readValue();
     if (value != null) localStorage.setItem(LAST_TRAVEL_KEY, String(value));
+  };
+
+  const el = h("div", { class: "col", style: "gap:4px" }, select, custom);
+  return { el, value: readValue };
+}
+
+export function lastDistanceKm(): number | null {
+  const raw = localStorage.getItem(LAST_DISTANCE_KEY);
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 5-km distance picker with a custom km fallback (mirrors the travel-time picker). */
+export function distanceSelect(initial: number | null): { el: HTMLElement; value(): number | null } {
+  const select = h("select", { class: "neon-input" }) as HTMLSelectElement;
+  select.append(h("option", { value: "" }, "— none —") as HTMLOptionElement);
+  for (let km = 5; km <= 300; km += 5) {
+    const opt = h("option", { value: String(km) }, `${km} km`) as HTMLOptionElement;
+    select.append(opt);
+  }
+  select.append(h("option", { value: CUSTOM }, "Custom…") as HTMLOptionElement);
+
+  const custom = h("input", {
+    class: "neon-input",
+    type: "number",
+    min: "1",
+    max: "2000",
+    step: "1",
+    placeholder: "Kilometres",
+    style: "display:none",
+  }) as HTMLInputElement;
+
+  if (initial != null) {
+    if (initial % 5 === 0 && initial >= 5 && initial <= 300) {
+      select.value = String(initial);
+    } else {
+      select.value = CUSTOM;
+      custom.value = String(initial);
+      custom.style.display = "block";
+    }
+  }
+
+  function sync(): void {
+    const isCustom = select.value === CUSTOM;
+    custom.style.display = isCustom ? "block" : "none";
+    const value = readValue();
+    if (value != null) localStorage.setItem(LAST_DISTANCE_KEY, String(value));
+  }
+
+  function readValue(): number | null {
+    if (select.value === "") return null;
+    if (select.value === CUSTOM) {
+      const n = Math.round(Number(custom.value));
+      return Number.isFinite(n) && n > 0 ? Math.min(n, 2000) : null;
+    }
+    return Number(select.value);
+  }
+
+  select.onchange = sync;
+  custom.oninput = () => {
+    const value = readValue();
+    if (value != null) localStorage.setItem(LAST_DISTANCE_KEY, String(value));
   };
 
   const el = h("div", { class: "col", style: "gap:4px" }, select, custom);

@@ -26,7 +26,9 @@ Milestones marked done shipped in v0.1; the rest are candidate improvements, rou
 - [x] Calendar-event linking in the trip popup now has two modes: search, and a month browser with ‹ › month navigation + Today (click a booking/day to link)
 - [x] Capture wizard "Set date, time & location manually" (backdate for existing-photo / Later-on logs; manual coords pin a location instead of live GPS/EXIF)
 - [x] Manual no-photo trips streamlined: "Later on" opens a manual form with the linked booking's start time as the **arrival**, a 5-minute travel-time picker (start log = arrival − travel, last-used duration remembered), and the client's NZ address prefilled for lookup
-- [x] Home base setting (Settings → Home base, NZ address search): outbound manual starts default to it, and **Log drive home** in the trip popup creates the client → home return leg as its own trip with two manual logs
+- [x] Home base setting (Settings → Home base, NZ address search): outbound manual starts default to it, and **Log drive home** adds the drive back as the trip's **return reading** — pick the distance home in 5-km steps and the odometer is set (or dial it by hand), and one claim covers the whole home → client → home round trip
+- [x] Trip **location via NZ address search**, with the picked point stored on the trip; **Saved places** (Settings CRUD: name + address + coordinates) appear as one-tap quick picks in every address search, and any searched address can be saved inline with ☆ Save place
+- [x] **Add a trip on**: creates the next business trip starting exactly where the current one ended — same time, place and odometer — without carrying the calendar event across (client-to-client chaining)
 - [x] NZ address lookup (OpenStreetMap Nominatim, NZ-only) proxied server-side and cached in Postgres, so previously searched addresses keep resolving when the internet is down; typed coordinates remain the fallback
 - [x] Format-proof photo uploads: HEIC/HEIF (iPhone/Android) decoded in-process via `heic-decode`, every accepted image normalized to a single 1920px JPEG (EXIF kept) + 480px thumbnail; originals are no longer stored (legacy `orig.*` files still served)
 

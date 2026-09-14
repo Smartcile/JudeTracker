@@ -11,6 +11,7 @@ import {
   readingToWheels,
   tieredBlendedRateCents,
   toLocalDay,
+  tripEndKm,
   wheelsToReading,
 } from "./claims.ts";
 import type { LogDto } from "./types.ts";
@@ -25,6 +26,21 @@ describe("computeClaim", () => {
   });
   it("keeps km when only the rate is missing", () => {
     expect(computeClaim(87642, 87915, null)).toEqual({ km: 273, amountCents: null });
+  });
+});
+
+describe("tripEndKm", () => {
+  it("uses the end reading when the trip has no return leg", () => {
+    expect(tripEndKm(100230, null)).toBe(100230);
+    expect(tripEndKm(100230, undefined)).toBe(100230);
+  });
+
+  it("uses the return reading once the home leg has one", () => {
+    expect(tripEndKm(100230, { readingKm: 100260 })).toBe(100260);
+  });
+
+  it("keeps the trip incomplete while a return leg has no reading", () => {
+    expect(tripEndKm(100230, { readingKm: null })).toBeNull();
   });
 });
 
@@ -115,7 +131,7 @@ describe("personal-use baseline", () => {
       createdAt: takenAt,
     };
   }
-  const job = (id: number, startLog: LogDto | null, endLog: LogDto | null) => ({ id, startLog, endLog });
+  const job = (id: number, startLog: LogDto | null, endLog: LogDto | null, returnLog: LogDto | null = null) => ({ id, startLog, endLog, returnLog });
 
   it("counts gaps between different jobs as personal km", () => {
     const aStart = log(1, 1, 100000, "2026-09-09T09:00:00Z");
@@ -172,5 +188,23 @@ describe("personal-use baseline", () => {
     expect(u.workKm).toBe(200);
     expect(u.personalKm).toBe(100);
     expect(businessUsePct(u)).toBe(66.7);
+  });
+
+  it("counts a round trip as one work leg up to its return reading", () => {
+    const start = log(1, 1, 100000, "2026-09-09T09:00:00Z");
+    const end = log(2, 1, 100230, "2026-09-09T11:00:00Z");
+    const ret = log(3, 1, 100260, "2026-09-09T11:30:00Z");
+    const u = analyzeUse([job(10, start, end, ret)]);
+    expect(u.workKm).toBe(260);
+    expect(u.personalKm).toBe(0);
+  });
+
+  it("falls back to the outbound leg while the return reading is pending", () => {
+    const start = log(1, 1, 100000, "2026-09-09T09:00:00Z");
+    const end = log(2, 1, 100230, "2026-09-09T11:00:00Z");
+    const ret = { ...log(3, 1, 0, "2026-09-09T11:30:00Z"), readingKm: null };
+    const u = analyzeUse([job(10, start, end, ret)]);
+    expect(u.workKm).toBe(230);
+    expect(u.personalKm).toBe(0);
   });
 });

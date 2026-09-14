@@ -44,6 +44,19 @@ export function computeClaim(
   return { km, amountCents: effectiveRateCents == null ? null : km * effectiveRateCents };
 }
 
+export interface ReturnReadingLike {
+  readingKm: number | null;
+}
+
+/**
+ * The reading that closes a trip's distance: a return (home) leg reading when
+ * the trip has one, otherwise the end reading. A return leg without a reading
+ * makes the trip incomplete (null) so its claim can't be lodged early.
+ */
+export function tripEndKm(endKm: number | null, returnLog: ReturnReadingLike | null | undefined): number | null {
+  return returnLog ? returnLog.readingKm : endKm;
+}
+
 const nzd = new Intl.NumberFormat("en-NZ", {
   style: "currency",
   currency: "NZD",
@@ -125,6 +138,7 @@ export interface UseJobLike {
   tripKind?: "business" | "personal";
   startLog: LogDto | null;
   endLog: LogDto | null;
+  returnLog?: LogDto | null;
 }
 
 export function analyzeUse(jobs: UseJobLike[]): UseAnalysis {
@@ -136,14 +150,20 @@ export function analyzeUse(jobs: UseJobLike[]): UseAnalysis {
     const personal = job.tripKind === "personal";
     const start = job.startLog;
     const end = job.endLog;
+    const ret = job.returnLog;
     if (start?.vehicleId != null && start.readingKm != null) {
       bounds.push({ vehicleId: start.vehicleId, at: start.takenAt, logId: start.id, jobId: job.id, readingKm: start.readingKm });
     }
     if (end?.vehicleId != null && end.readingKm != null) {
       bounds.push({ vehicleId: end.vehicleId, at: end.takenAt, logId: end.id, jobId: job.id, readingKm: end.readingKm });
     }
-    if (start?.readingKm != null && end?.readingKm != null && end.readingKm >= start.readingKm) {
-      const km = end.readingKm - start.readingKm;
+    if (ret?.vehicleId != null && ret.readingKm != null) {
+      bounds.push({ vehicleId: ret.vehicleId, at: ret.takenAt, logId: ret.id, jobId: job.id, readingKm: ret.readingKm });
+    }
+    // Until the return reading exists, the outbound leg still counts as work.
+    const tripEnd = ret?.readingKm ?? end?.readingKm ?? null;
+    if (start?.readingKm != null && tripEnd != null && tripEnd >= start.readingKm) {
+      const km = tripEnd - start.readingKm;
       if (personal) personalJobKm += km;
       else workKm += km;
     }

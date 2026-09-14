@@ -4,7 +4,7 @@ import { toast } from "./toast.ts";
 import { openDialModal } from "./dial.ts";
 import { openCaptureWizard } from "./captureWizard.ts";
 import { locationPicker } from "./locationPicker.ts";
-import { fromLocalInput, lastTravelMinutes, timingHelper, toLocalInput, travelTimeSelect } from "./timingHelper.ts";
+import { distanceSelect, fromLocalInput, lastTravelMinutes, timingHelper, toLocalInput, travelTimeSelect } from "./timingHelper.ts";
 import { h } from "../dom.ts";
 import { formatKm, formatNzd } from "../../../shared/claims.ts";
 import { shiftIsoMinutes } from "../../../shared/time.ts";
@@ -25,10 +25,11 @@ function fmtLatLng(lat: number | null, lng: number | null): string {
   return lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : "";
 }
 
-async function openReading(job: JobDto, role: "start" | "end", logId: number, changed: () => Promise<void>): Promise<void> {
+async function openReading(job: JobDto, role: "start" | "end" | "return", logId: number, changed: () => Promise<void>): Promise<void> {
   const info = await api.readingInfo(logId);
   const digits = info.vehicleDigits ?? 6;
   const locked = info.jobStatus === "claimed" || info.jobStatus === "submitted" || info.jobStatus === "paid";
+  const roleLabel = role === "return" ? "return (home)" : role;
   openDialModal({
     digits,
     startKm: info.log.readingKm ?? info.prevReadingKm ?? info.floorKm,
@@ -36,7 +37,7 @@ async function openReading(job: JobDto, role: "start" | "end", logId: number, ch
     capKm: info.capKm,
     prevKm: info.prevReadingKm,
     canEdit: info.canEdit && !locked,
-    title: `${job.client} — ${role} reading${job.vehiclePlate ? ` (${job.vehiclePlate})` : ""}`,
+    title: `${job.client} — ${roleLabel} reading${job.vehiclePlate ? ` (${job.vehiclePlate})` : ""}`,
     photoUrl: info.log.hasPhoto ? api.photoUrl(logId, "full") : null,
     onConfirm: async (value) => {
       await api.setReading(logId, value);
@@ -56,19 +57,21 @@ function noPhotoBox(text: string): HTMLElement {
 
 function readingSlot(
   job: JobDto,
-  role: "start" | "end",
+  role: "start" | "end" | "return",
   eventPromise: Promise<CalEventDto | null>,
   settingsPromise: Promise<SettingsDto | null>,
   changed: () => Promise<void>,
   onCapture?: () => void,
 ): HTMLElement {
-  const log = role === "start" ? job.startLog : job.endLog;
+  const log = role === "start" ? job.startLog : role === "end" ? job.endLog : job.returnLog;
   const slot = h("div", { class: "reading-slot", style: "gap:6px" });
+  const label = role === "start" ? "Start" : role === "end" ? "End" : "Return (home)";
 
   if (!log) {
+    if (role === "return") return h("div", {});
     slot.append(
       h("div", { class: "row spread" },
-        h("span", { style: "font-weight:600;font-size:0.85rem" }, role === "start" ? "Start" : "End"),
+        h("span", { style: "font-weight:600;font-size:0.85rem" }, label),
         h("span", { class: "chip open" }, "no photo yet"),
       ),
       h("div", { class: "row", style: "gap:6px" },
@@ -101,12 +104,18 @@ function readingSlot(
   const reading = h("span", { class: log.readingKm != null ? "reading-value" : "reading-value unset" }, pad(log.readingKm, 6));
   const edit = h("button", { class: "btn sm", disabled: locked }, log.readingKm != null ? "Edit" : "Enter reading");
   edit.onclick = () => void openReading(job, role, log.id, changed);
-  const del = h("button", { class: "icon-btn danger", disabled: locked, title: "Delete photo", style: "padding:4px 8px" }, "✕");
+  const del = h("button", { class: "icon-btn danger", disabled: locked, title: "Delete log", style: "padding:4px 8px" }, "✕");
   del.onclick = async () => {
-    if (!(await confirmDialog({ title: "Delete photo?", message: "Removes the photo, GPS and its reading from this job.", confirmLabel: "Delete", danger: true }))) return;
+    const withPhoto = log.hasPhoto;
+    if (!(await confirmDialog({
+      title: withPhoto ? "Delete photo?" : "Delete reading?",
+      message: withPhoto ? "Removes the photo, GPS and its reading from this job." : "Removes this manual log and its reading from the trip.",
+      confirmLabel: "Delete",
+      danger: true,
+    }))) return;
     try {
       await api.deleteLog(log.id);
-      toast("Photo deleted");
+      toast(withPhoto ? "Photo deleted" : "Reading deleted");
       await changed();
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "err");
@@ -115,12 +124,12 @@ function readingSlot(
 
   slot.append(
     h("div", { class: "row spread" },
-      h("span", { style: "font-weight:600;font-size:0.85rem" }, role === "start" ? "Start" : "End"),
+      h("span", { style: "font-weight:600;font-size:0.85rem" }, label),
       h("span", { class: "text-faint mono", style: "font-size:0.72rem" }, fmtWhen(log.takenAt)),
     ),
     media,
     h("div", { class: "row spread" }, reading, h("div", { class: "row", style: "gap:4px" }, edit, del)),
-    ...(locked ? [] : [logDetailsControls(role, log, eventPromise, settingsPromise, changed)]),
+    ...(locked ? [] : [logDetailsControls(role, log, job, eventPromise, settingsPromise, changed)]),
   );
   return slot;
 }
@@ -187,8 +196,9 @@ function attachPhotoBox(logId: number, changed: () => Promise<void>): HTMLElemen
  * lookup that replaces the GPS point (typed coordinates stay as a fallback).
  */
 function logDetailsControls(
-  role: "start" | "end",
+  role: "start" | "end" | "return",
   log: LogDto,
+  job: JobDto,
   eventPromise: Promise<CalEventDto | null>,
   settingsPromise: Promise<SettingsDto | null>,
   changed: () => Promise<void>,
@@ -202,11 +212,29 @@ function logDetailsControls(
     style: "gap:8px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)",
   });
 
-  const timing = timingHelper({ role, arrivalIso: log.takenAt, durationMinutes: null });
+  const timing = timingHelper({ role: role === "start" ? "start" : "end", arrivalIso: log.takenAt, durationMinutes: null });
   const picker = locationPicker({ lat: log.lat, lng: log.lng, homeBase: null });
   void settingsPromise.then((s) => {
     if (s) picker.setHomeBase(s);
   });
+
+  // Return logs can set their reading from the distance driven home (client reading + km).
+  const baseKm = job.endLog?.readingKm ?? null;
+  const currentDistance = role === "return" && baseKm != null && log.readingKm != null ? log.readingKm - baseKm : null;
+  const distance = role === "return" && baseKm != null ? distanceSelect(currentDistance) : null;
+  const distanceHint = h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" });
+  if (distance) {
+    const sync = (): void => {
+      const km = distance.value();
+      distanceHint.textContent =
+        km == null
+          ? "Pick a distance to set the odometer, or use Edit to dial the reading."
+          : `Reading at home: ${pad(baseKm! + km, 6)}`;
+    };
+    distance.el.addEventListener("input", sync);
+    distance.el.addEventListener("change", sync);
+    sync();
+  }
 
   const eventSlot = h("div", { class: "row" });
   void eventPromise.then((ev) => {
@@ -254,22 +282,37 @@ function logDetailsControls(
       body.lat = null;
       body.lng = null;
     }
-    if (body.takenAt === undefined && body.lat === undefined) {
+
+    let readingTarget: number | null = null;
+    if (distance) {
+      const km = distance.value();
+      if (km != null) readingTarget = baseKm! + km;
+    }
+    const readingChanged = readingTarget != null && readingTarget !== log.readingKm;
+
+    if (body.takenAt === undefined && body.lat === undefined && !readingChanged) {
       toast("No changes to save");
       return;
     }
+    save.disabled = true;
     try {
-      await api.patchLog(log.id, body);
+      if (readingChanged && readingTarget != null) await api.setReading(log.id, readingTarget);
+      if (body.takenAt !== undefined || body.lat !== undefined) await api.patchLog(log.id, body);
       toast(role === "start" && body.takenAt ? "Saved — the trip date follows the start log" : "Log updated");
       await changed();
     } catch (err) {
       errEl.textContent = err instanceof Error ? err.message : String(err);
+      save.disabled = false;
     }
   };
 
+  const distanceField = distance
+    ? h("div", { class: "field", style: "margin:0" }, h("label", {}, "Distance home"), distance.el, distanceHint)
+    : null;
   panel.append(
     timing.el,
     eventSlot,
+    ...(distanceField ? [distanceField] : []),
     h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), picker.el),
     h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
       `GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Pick an address to replace it (stored as manual); clear the location to remove the point.`),
@@ -281,7 +324,7 @@ function logDetailsControls(
   return wrap;
 }
 
-/** One-tap return leg: client → home base, created as its own trip with two manual logs. */
+/** One-tap return leg: adds the home-arrival reading to this same trip. */
 function driveHomeSection(
   current: JobDto,
   settingsPromise: Promise<SettingsDto | null>,
@@ -289,11 +332,25 @@ function driveHomeSection(
   changed: () => Promise<void>,
 ): HTMLElement {
   const box = h("div", { class: "col", style: "gap:6px" });
+  if (!current.endLog) {
+    box.append(
+      h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+        "Log the client arrival (end) first — the drive home is added as this trip's return reading."),
+    );
+    return box;
+  }
+  if (current.status === "claimed" || current.status === "submitted" || current.status === "paid") {
+    box.append(
+      h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+        "Claim lodged — reopen the trip to add the drive home."),
+    );
+    return box;
+  }
   void Promise.all([settingsPromise, eventPromise]).then(([settings, event]) => {
     if (settings?.homeBaseLat == null || settings.homeBaseLng == null) {
       box.append(
         h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
-          "Set a home base in Settings to log the drive home as a return trip."),
+          "Set a home base in Settings to log the drive home."),
       );
       return;
     }
@@ -304,7 +361,7 @@ function driveHomeSection(
       h("div", { class: "row spread", style: "gap:8px;align-items:center" },
         h("div", { class: "col", style: "gap:1px;min-width:0" },
           h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase" }, "Drive home"),
-          h("span", { class: "text-faint", style: "font-size:0.72rem" }, `Adds client → ${settings.homeBaseAddress || "home base"} as its own trip.`),
+          h("span", { class: "text-faint", style: "font-size:0.72rem" }, `Adds the drive back to ${settings.homeBaseAddress || "home base"} as this trip's return reading.`),
         ),
         btn,
       ),
@@ -320,20 +377,36 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
     value: toLocalInput(departDefaultIso ?? new Date().toISOString()),
   }) as HTMLInputElement;
   const travel = travelTimeSelect(lastTravelMinutes() ?? 30);
+  const baseKm = job.endLog?.readingKm ?? null;
+  const distance = baseKm != null ? distanceSelect(null) : null;
   const arriveEl = h("p", { class: "text-dim", style: "font-size:0.8rem;margin:0" });
+  const distanceEl = h("p", { class: "text-dim", style: "font-size:0.8rem;margin:0" });
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem;margin:0" });
 
   const departureIso = (): string => fromLocalInput(departI.value) ?? new Date().toISOString();
   const arrivalIso = (): string => shiftIsoMinutes(departureIso(), travel.value() ?? 0);
   const refresh = (): void => {
     arriveEl.textContent = `Arrive home at ${new Date(arrivalIso()).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}`;
+    if (baseKm == null) {
+      distanceEl.textContent = "Enter the client reading first to use distance — or dial the return reading later.";
+      return;
+    }
+    const km = distance?.value() ?? null;
+    distanceEl.textContent =
+      km == null
+        ? `Distance not set — the return reading stays blank until you dial it (client reading ${pad(baseKm, 6)}).`
+        : `Reading at home: ${pad(baseKm + km, 6)} (client ${pad(baseKm, 6)} + ${km} km)`;
   };
   departI.oninput = refresh;
   travel.el.addEventListener("input", refresh);
   travel.el.addEventListener("change", refresh);
+  if (distance) {
+    distance.el.addEventListener("input", refresh);
+    distance.el.addEventListener("change", refresh);
+  }
   refresh();
 
-  const save = h("button", { class: "btn primary" }, "Create return trip");
+  const save = h("button", { class: "btn primary" }, "Add return reading");
   save.onclick = async () => {
     errEl.textContent = "";
     const departAt = departureIso();
@@ -344,9 +417,9 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
     }
     save.disabled = true;
     try {
-      await api.createReturnTrip(job.id, { departAt, arriveAt });
+      await api.addReturnLog(job.id, { departAt, arriveAt, distanceKm: baseKm != null ? distance?.value() ?? null : null });
       modal.close();
-      toast("Return trip logged — enter its readings when ready");
+      toast("Drive home added to this trip");
       await changed();
     } catch (err) {
       errEl.textContent = err instanceof Error ? err.message : String(err);
@@ -356,10 +429,12 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
 
   const body = h("div", { class: "col" },
     h("p", { class: "text-dim", style: "font-size:0.85rem;margin:0" },
-      "Creates a separate client → home base trip with two manual logs. Its odometer readings are entered like any other trip."),
+      "Adds the drive home as this trip's return reading, so one claim covers the whole back-and-forth."),
     h("div", { class: "field", style: "margin:0" }, h("label", {}, "Leave the client"), departI),
     h("div", { class: "field", style: "margin:0" }, h("label", {}, "Travel time home"), travel.el),
+    distance ? h("div", { class: "field", style: "margin:0" }, h("label", {}, "Distance home"), distance.el) : null,
     arriveEl,
+    distanceEl,
     errEl,
     h("div", { class: "row", style: "justify-content:flex-end" },
       h("button", { class: "btn", onclick: () => modal.close() }, "Cancel"),
@@ -367,6 +442,42 @@ function openReturnTripModal(job: JobDto, departDefaultIso: string | null, chang
     ),
   );
   const modal = showModal({ title: `Drive home — ${job.client}`, body });
+}
+
+/** Onward trip: starts where this one ended (time, place and odometer), with no calendar event. */
+function onwardSection(current: JobDto, refresh: () => Promise<void>, close: () => void): HTMLElement {
+  const box = h("div", { class: "col", style: "gap:6px" });
+  if (!current.endLog) {
+    box.append(
+      h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+        "The client arrival (end) is needed before adding the next trip on."),
+    );
+    return box;
+  }
+  const btn = h("button", { class: "btn sm", style: "white-space:nowrap" }, "＋ Add a trip on");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const next = await api.createNextTrip(current.id);
+      close();
+      toast("New trip added — starts where this one ended");
+      await refresh();
+      openTripModal(next, refresh);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "err");
+      btn.disabled = false;
+    }
+  };
+  box.append(
+    h("div", { class: "row spread", style: "gap:8px;align-items:center" },
+      h("div", { class: "col", style: "gap:1px;min-width:0" },
+        h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase" }, "Onward trip"),
+        h("span", { class: "text-faint", style: "font-size:0.72rem" }, "Starts at this trip's end — same time, place and odometer — without the calendar event."),
+      ),
+      btn,
+    ),
+  );
+  return box;
 }
 
 function claimControls(job: JobDto, changed: () => Promise<void>): HTMLElement {
@@ -399,7 +510,10 @@ function claimControls(job: JobDto, changed: () => Promise<void>): HTMLElement {
       }))) return;
       await go(() => api.claim(job.id, "claimed"), "Claim lodged");
     };
-    if (needs) row.append(h("span", { class: "text-dim", style: "font-size:0.78rem" }, "Needs both photos + readings"));
+    if (needs) {
+      row.append(h("span", { class: "text-dim", style: "font-size:0.78rem" },
+        job.returnLog ? "Needs both photos, the client reading and the return reading" : "Needs both photos + readings"));
+    }
     row.append(claim);
   } else {
     if (job.status === "claimed" || job.status === "submitted") {
@@ -911,7 +1025,6 @@ function eventLinker(current: JobDto, changed: () => Promise<void>): HTMLElement
 
 export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
   const client = h("input", { class: "neon-input", value: job.client, placeholder: "Client / purpose" }) as HTMLInputElement;
-  const location = h("input", { class: "neon-input", value: job.location, placeholder: "Location" }) as HTMLInputElement;
   const notes = h("textarea", { class: "neon-input", rows: 2, style: "resize:vertical;min-height:52px", placeholder: "Notes / purpose detail" }) as HTMLTextAreaElement;
   notes.value = job.notes;
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem" });
@@ -946,8 +1059,16 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
 
   function build(current: JobDto): HTMLElement {
     client.value = current.client;
-    location.value = current.location;
     notes.value = current.notes;
+
+    const picker = locationPicker({
+      lat: current.locationLat,
+      lng: current.locationLng,
+      label: current.location,
+      homeBase: null,
+      placeholder: "Search the client's NZ address…",
+    });
+    if (current.location && current.locationLat == null) picker.prefill(current.location);
 
     const chips = h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
       current.tripKind === "personal" ? h("span", { class: "chip personal" }, "Personal") : statusChip(current.status),
@@ -988,12 +1109,33 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
 
     const saveDetails = h("button", { class: "btn", style: "align-self:flex-end" }, "Save details");
     saveDetails.onclick = async () => {
+      errEl.textContent = "";
+      const pickErr = picker.error();
+      if (pickErr) {
+        errEl.textContent = pickErr;
+        return;
+      }
+      const body: {
+        client: string;
+        notes: string;
+        location?: string;
+        locationLat?: number | null;
+        locationLng?: number | null;
+      } = { client: client.value.trim(), notes: notes.value.trim() };
+      if (picker.touched()) {
+        const place = picker.get();
+        if (place) {
+          body.location = place.label || current.location;
+          body.locationLat = place.lat;
+          body.locationLng = place.lng;
+        } else {
+          body.location = "";
+          body.locationLat = null;
+          body.locationLng = null;
+        }
+      }
       try {
-        await api.patchJob(current.id, {
-          client: client.value.trim(),
-          location: location.value.trim(),
-          notes: notes.value.trim(),
-        });
+        await api.patchJob(current.id, body);
         toast("Details saved");
         await changed();
       } catch (err) {
@@ -1024,19 +1166,22 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
       readingSlot(current, "end", eventPromise, settingsPromise, changed, () => void captureFor("end")),
     );
 
-    const driveHome = driveHomeSection(current, settingsPromise, eventPromise, changed);
+    const returnArea = current.returnLog
+      ? readingSlot(current, "return", eventPromise, settingsPromise, changed)
+      : driveHomeSection(current, settingsPromise, eventPromise, changed);
 
     return h("div", { class: "col", style: "gap:12px" },
       chips,
       car,
       linker,
-      driveHome,
       h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px" },
         h("div", { class: "field", style: "margin:0" }, h("label", {}, "Client / purpose"), client),
-        h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), location),
+        h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), picker.el),
       ),
       h("div", { class: "field", style: "margin:0" }, h("label", {}, "Notes"), notes),
       photos,
+      returnArea,
+      onwardSection(current, refresh, () => modal.close()),
       money,
       h("div", { class: "row spread" }, claimControls(current, changed), delTrip),
       errEl,

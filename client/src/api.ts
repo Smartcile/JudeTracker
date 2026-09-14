@@ -4,6 +4,7 @@ import type {
   ClaimSummaryDto,
   GeocodeResultDto,
   JobDto,
+  PlaceDto,
   SettingsDto,
   VehicleDto,
 } from "../../shared/types.ts";
@@ -76,14 +77,30 @@ export const api = {
   geocode: (query: string) =>
     request<{ results: GeocodeResultDto[] }>(`/api/geocode?${new URLSearchParams({ q: query })}`),
 
+  places: () => request<PlaceDto[]>("/api/places"),
+  createPlace: (body: { name: string; address: string; lat: number; lng: number }) =>
+    request<PlaceDto>("/api/places", json("POST", body)),
+  updatePlace: (place: PlaceDto) => request<PlaceDto>(`/api/places/${place.id}`, json("PUT", place)),
+  deletePlace: (id: number) => request<{ ok: boolean }>(`/api/places/${id}`, json("DELETE")),
+
   jobs: () => request<JobDto[]>("/api/jobs"),
-  createJob: (body: { eventUid?: string; client?: string; location?: string; jobDate?: string; kind?: "business" | "personal"; notes?: string }) =>
-    request<JobDto>("/api/jobs", json("POST", body)),
+  createJob: (body: {
+    eventUid?: string;
+    client?: string;
+    location?: string;
+    locationLat?: number | null;
+    locationLng?: number | null;
+    jobDate?: string;
+    kind?: "business" | "personal";
+    notes?: string;
+  }) => request<JobDto>("/api/jobs", json("POST", body)),
   patchJob: (
     id: number,
     body: {
       client?: string;
       location?: string;
+      locationLat?: number | null;
+      locationLng?: number | null;
       notes?: string;
       eventUid?: string | null;
       jobDate?: string;
@@ -93,8 +110,9 @@ export const api = {
   claim: (id: number, status: "claimed" | "submitted" | "paid") =>
     request<JobDto>(`/api/jobs/${id}/claim`, json("POST", { status })),
   reopen: (id: number) => request<JobDto>(`/api/jobs/${id}/reopen`, json("POST")),
-  createReturnTrip: (id: number, body: { departAt: string; arriveAt: string }) =>
-    request<JobDto>(`/api/jobs/${id}/return-trip`, json("POST", body)),
+  addReturnLog: (id: number, body: { departAt: string; arriveAt: string; distanceKm?: number | null }) =>
+    request<JobDto>(`/api/jobs/${id}/return-log`, json("POST", body)),
+  createNextTrip: (id: number) => request<JobDto>(`/api/jobs/${id}/next-trip`, json("POST")),
   deleteJob: (id: number) => request<{ ok: boolean }>(`/api/jobs/${id}`, json("DELETE")),
 
   /** Upload a photo log for a job. photo may be null for a manual ("Later on") log. */
@@ -109,7 +127,7 @@ export const api = {
       log: JobDto["startLog"] & { vehiclePlate: string | null };
       jobId: number | null;
       jobStatus: string | null;
-      role: "start" | "end" | null;
+      role: "start" | "end" | "return" | null;
       vehicleDigits: number | null;
       floorKm: number;
       capKm: number | null;

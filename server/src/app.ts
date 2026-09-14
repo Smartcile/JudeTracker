@@ -11,6 +11,7 @@ import { calendarRouter } from "./routes/calendar.ts";
 import { geocodeRouter } from "./routes/geocode.ts";
 import { jobsRouter } from "./routes/jobs.ts";
 import { jobsLogsRouter, logsRouter } from "./routes/logs.ts";
+import { placesRouter } from "./routes/places.ts";
 import { claimsRouter } from "./routes/claims.ts";
 import { summaryRouter } from "./routes/summary.ts";
 import { exportRouter } from "./routes/export.ts";
@@ -28,6 +29,7 @@ export function createApp(): Express {
   app.use("/api/vehicles", vehiclesRouter);
   app.use("/api/calendar", calendarRouter);
   app.use("/api/geocode", geocodeRouter);
+  app.use("/api/places", placesRouter);
   app.use("/api", jobsLogsRouter);
   app.use("/api/jobs", jobsRouter);
   app.use("/api/logs", logsRouter);

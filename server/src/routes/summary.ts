@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { ClaimRowDto, ClaimSummaryDto } from "../../../shared/types.ts";
-import { computeClaim } from "../../../shared/claims.ts";
+import { computeClaim, tripEndKm } from "../../../shared/claims.ts";
 import type { JobAssembled } from "../api/mappers.ts";
 import { loadJobs } from "../services/jobs.ts";
 
@@ -15,7 +15,7 @@ function inRange(date: string, from?: string, to?: string): boolean {
 function toRow(a: JobAssembled): ClaimRowDto | null {
   if (a.job.tripKind === "personal") return null;
   const start = a.startLog?.readingKm ?? null;
-  const end = a.endLog?.readingKm ?? null;
+  const end = tripEndKm(a.endLog?.readingKm ?? null, a.returnLog);
   const rateCents = a.job.rateCents ?? a.vehicle?.rateCents ?? null;
   const { km, amountCents } = computeClaim(start, end, rateCents);
   if (km == null) return null;

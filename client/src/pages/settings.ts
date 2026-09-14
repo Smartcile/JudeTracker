@@ -3,13 +3,14 @@ import { confirmDialog, showModal } from "../components/modal.ts";
 import { toast } from "../components/toast.ts";
 import { locationPicker } from "../components/locationPicker.ts";
 import { clear, h } from "../dom.ts";
-import type { SettingsDto, VehicleDto } from "../../../shared/types.ts";
+import type { PlaceDto, SettingsDto, VehicleDto } from "../../../shared/types.ts";
 
 let settings: SettingsDto | null = null;
 let vehicles: VehicleDto[] = [];
+let places: PlaceDto[] = [];
 
 async function refresh(): Promise<void> {
-  [settings, vehicles] = await Promise.all([api.settings(), api.vehicles()]);
+  [settings, vehicles, places] = await Promise.all([api.settings(), api.vehicles(), api.places()]);
 }
 
 function fyBounds(): { from: string; to: string } {
@@ -301,6 +302,102 @@ function renderHomeBase(body: HTMLElement): void {
   );
 }
 
+// Saved places ------------------------------------------------------------------
+
+function placeModal(p?: PlaceDto): void {
+  const name = h("input", { class: "neon-input", value: p?.name ?? "", placeholder: "e.g. Sarah's place", maxlength: "80" }) as HTMLInputElement;
+  const picker = locationPicker({
+    lat: p?.lat ?? null,
+    lng: p?.lng ?? null,
+    label: p?.address ?? "",
+    homeBase: null,
+    placeholder: "Search the NZ address…",
+  });
+  const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem" });
+  const fields = h("div", { class: "col" },
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Name"), name),
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Address"), picker.el),
+  );
+  const modal = showModal({ title: p ? `Edit ${p.name}` : "Add saved place", body: h("div", { class: "col" }, fields, errEl) });
+  const actions = h("div", { class: "row", style: "justify-content:flex-end;margin-top:4px" });
+  const cancel = h("button", { class: "btn", onclick: () => modal.close() }, "Cancel");
+  const save = h("button", { class: "btn primary" }, p ? "Save place" : "Add place");
+  save.onclick = async () => {
+    errEl.textContent = "";
+    const pickErr = picker.error();
+    if (pickErr) {
+      errEl.textContent = pickErr;
+      return;
+    }
+    const place = picker.get();
+    if (!place) {
+      errEl.textContent = "Search and pick an address for this place.";
+      return;
+    }
+    const trimmed = name.value.trim();
+    if (!trimmed) {
+      errEl.textContent = "Give the place a name.";
+      return;
+    }
+    try {
+      if (p) await api.updatePlace({ id: p.id, name: trimmed, address: place.label, lat: place.lat, lng: place.lng });
+      else await api.createPlace({ name: trimmed, address: place.label, lat: place.lat, lng: place.lng });
+      modal.close();
+      toast(p ? "Place updated" : "Place saved");
+      await rerender();
+    } catch (err) {
+      errEl.textContent = err instanceof ApiError ? err.message : "Something went wrong";
+    }
+  };
+  actions.append(cancel, save);
+  fields.append(actions);
+}
+
+function renderPlaces(body: HTMLElement): void {
+  clear(body);
+  body.append(h("div", { class: "card-head" },
+    h("div", { class: "card-title" }, "Saved places"),
+    h("button", { class: "btn primary sm", onclick: () => placeModal() }, "+ Add place"),
+  ));
+  body.append(h("p", { class: "text-dim", style: "font-size:0.85rem;margin-bottom:10px" },
+    "Named addresses you use often — they appear as one-tap picks in the address search when editing a trip, log or the home base."));
+
+  if (places.length === 0) {
+    body.append(h("div", { class: "empty" },
+      h("div", { class: "empty-title" }, "No saved places yet"),
+      h("p", {}, "Add a place to reuse it in one tap from any address search."),
+    ));
+    return;
+  }
+  const list = h("div", { class: "col", style: "gap:0" });
+  places.forEach((p, index) => {
+    const row = h("div", { class: "trip-row", style: index === 0 ? "border-top:1px solid var(--line-dim)" : "" });
+    const info = h("div", { class: "col", style: "gap:1px;flex:1;min-width:0" },
+      h("div", { class: "row", style: "gap:8px" }, h("span", { style: "font-weight:600" }, p.name)),
+      h("div", { class: "row", style: "gap:8px;flex-wrap:wrap" },
+        h("span", { class: "text-dim", style: "font-size:0.8rem" }, p.address || "No address"),
+        h("span", { class: "text-faint mono", style: "font-size:0.74rem" }, `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`),
+      ),
+    );
+    const edit = h("button", { class: "icon-btn", title: "Edit", onclick: () => placeModal(p) }, "✎");
+    const del = h("button", { class: "icon-btn danger", title: "Delete" });
+    del.append(document.createTextNode("✕"));
+    del.onclick = async () => {
+      if (!(await confirmDialog({ title: `Delete ${p.name}?`, message: "The saved place is removed from your quick picks.", confirmLabel: "Delete", danger: true }))) return;
+      try {
+        await api.deletePlace(p.id);
+        toast(`${p.name} deleted`);
+        await rerender();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), "err");
+      }
+    };
+    row.append(info, h("div", { class: "row", style: "gap:2px" }, edit, del));
+    list.append(row);
+  });
+  body.append(list);
+}
+
 // Security ---------------------------------------------------------------------
 
 function renderSecurity(body: HTMLElement): void {
@@ -383,20 +480,22 @@ export async function renderSettings(root: HTMLElement): Promise<void> {
   const head = h("div", { class: "page-head" },
     h("div", {},
       h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "Vehicles, calendar, security and export."),
+      h("p", { class: "sub" }, "Vehicles, saved places, calendar, security and export."),
     ),
   );
   root.append(head);
 
   const cal = h("div", { class: "card" });
   const home = h("div", { class: "card" });
+  const placesCard = h("div", { class: "card" });
   const veh = h("div", { class: "card" });
   const sec = h("div", { class: "card" });
   const exp = h("div", { class: "card" });
-  root.append(cal, home, veh, sec, exp);
+  root.append(cal, home, placesCard, veh, sec, exp);
 
   renderCalendar(cal);
   renderHomeBase(home);
+  renderPlaces(placesCard);
   renderVehicles(veh);
   renderSecurity(sec);
   renderExport(exp);

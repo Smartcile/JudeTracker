@@ -1,13 +1,14 @@
 import type { JobStatus, TripKind } from "../../../shared/types.ts";
-import { computeClaim } from "../../../shared/claims.ts";
+import { computeClaim, tripEndKm } from "../../../shared/claims.ts";
 import type {
   CalEventDto,
   JobDto,
   LogDto,
+  PlaceDto,
   SettingsDto,
   VehicleDto,
 } from "../../../shared/types.ts";
-import type { CalendarEventRow, JobRow, LogRow, SettingsRow, VehicleRow } from "../db/schema.ts";
+import type { CalendarEventRow, JobRow, LogRow, PlaceRow, SettingsRow, VehicleRow } from "../db/schema.ts";
 
 export function toVehicle(v: VehicleRow): VehicleDto {
   return {
@@ -66,11 +67,16 @@ export function toCalEvent(e: CalendarEventRow): CalEventDto {
   };
 }
 
+export function toPlace(p: PlaceRow): PlaceDto {
+  return { id: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng };
+}
+
 export interface JobAssembled {
   job: JobRow;
   vehicle?: VehicleRow;
   startLog?: LogRow;
   endLog?: LogRow;
+  returnLog?: LogRow;
   logPlates?: Map<number, string>;
 }
 
@@ -82,15 +88,18 @@ export function toJob(a: JobAssembled): JobDto {
   const rateCents = isBusiness ? job.rateCents ?? vehicleRate : null;
   const { km, amountCents } = computeClaim(
     a.startLog?.readingKm ?? null,
-    a.endLog?.readingKm ?? null,
+    tripEndKm(a.endLog?.readingKm ?? null, a.returnLog),
     rateCents,
   );
   const startLog = a.startLog ? toLog(a.startLog, a.logPlates) : null;
   const endLog = a.endLog ? toLog(a.endLog, a.logPlates) : null;
+  const returnLog = a.returnLog ? toLog(a.returnLog, a.logPlates) : null;
   return {
     id: job.id,
     client: job.client,
     location: job.location,
+    locationLat: job.locationLat,
+    locationLng: job.locationLng,
     notes: job.notes,
     jobDate: job.jobDate,
     eventUid: job.eventUid,
@@ -100,6 +109,7 @@ export function toJob(a: JobAssembled): JobDto {
     vehiclePlate: a.vehicle?.plate ?? null,
     startLogId: job.startLogId,
     endLogId: job.endLogId,
+    returnLogId: job.returnLogId,
     km,
     effectiveRateCents: rateCents,
     amountCents,
@@ -109,6 +119,7 @@ export function toJob(a: JobAssembled): JobDto {
     createdAt: job.createdAt.toISOString(),
     startLog,
     endLog,
+    returnLog,
   };
 }
 

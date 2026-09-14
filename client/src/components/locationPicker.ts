@@ -1,6 +1,7 @@
 import { api } from "../api.ts";
 import { h } from "../dom.ts";
-import type { GeocodeResultDto, SettingsDto } from "../../../shared/types.ts";
+import { toast } from "./toast.ts";
+import type { GeocodeResultDto, PlaceDto, SettingsDto } from "../../../shared/types.ts";
 
 export interface PickedPlace {
   lat: number;
@@ -43,6 +44,8 @@ export function locationPicker(opts: {
   let touchedFlag = false;
 
   let home = opts.homeBase && opts.homeBase.homeBaseLat != null && opts.homeBase.homeBaseLng != null ? opts.homeBase : null;
+  let savedPlaces: PlaceDto[] = [];
+  let placesRequested = false;
 
   const errEl = h("p", { class: "text-danger", style: "font-size:0.76rem;min-height:1em;margin:0" });
   const search = h("input", {
@@ -55,10 +58,55 @@ export function locationPicker(opts: {
       "display:none;max-height:190px;overflow-y:auto;border:1px solid var(--line-dim);border-radius:var(--r-sm);background:var(--bg-input)",
   });
   const picked = h("div", { class: "row", style: "gap:6px;align-items:center;flex-wrap:nowrap;font-size:0.8rem" });
+  const saveHolder = h("div", { class: "col", style: "gap:4px" });
   const latI = h("input", { class: "neon-input", type: "number", step: "any", min: "-90", max: "90", placeholder: "Latitude" }) as HTMLInputElement;
   const lngI = h("input", { class: "neon-input", type: "number", step: "any", min: "-180", max: "180", placeholder: "Longitude" }) as HTMLInputElement;
   const manualBox = h("div", { class: "grid", style: "grid-template-columns:1fr 1fr;gap:6px;display:none" }, latI, lngI);
   const manualBtn = h("button", { class: "btn sm ghost", style: "align-self:flex-start;font-size:0.72rem;padding:3px 8px" }, "⌨ Enter coordinates instead");
+
+  function placeIsSaved(place: PickedPlace): boolean {
+    return savedPlaces.some((p) => p.lat === place.lat && p.lng === place.lng && (p.address || "") === (place.label || ""));
+  }
+
+  function closeSaveForm(): void {
+    while (saveHolder.firstChild) saveHolder.removeChild(saveHolder.firstChild);
+  }
+
+  function openSaveForm(place: PickedPlace): void {
+    closeSaveForm();
+    const suggested = place.label ? place.label.split(",")[0]!.trim() : "";
+    const nameI = h("input", { class: "neon-input", placeholder: "Name e.g. Sarah's place", value: suggested }) as HTMLInputElement;
+    const errEl2 = h("p", { class: "text-danger", style: "font-size:0.76rem;min-height:1em;margin:0" });
+    const save = h("button", { class: "btn sm primary" }, "Save place");
+    const cancel = h("button", { class: "btn sm ghost", onclick: closeSaveForm }, "Cancel");
+    save.onclick = async () => {
+      const name = nameI.value.trim();
+      if (!name) {
+        errEl2.textContent = "Give the place a name.";
+        return;
+      }
+      save.disabled = true;
+      try {
+        const created = await api.createPlace({ name, address: place.label, lat: place.lat, lng: place.lng });
+        savedPlaces = [...savedPlaces, created].sort((a, b) => a.name.localeCompare(b.name));
+        closeSaveForm();
+        renderPicked();
+        toast(`“${created.name}” saved as a place`);
+      } catch (err) {
+        errEl2.textContent = err instanceof Error ? err.message : String(err);
+        save.disabled = false;
+      }
+    };
+    saveHolder.append(
+      h("div", { class: "col", style: "gap:6px;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)" },
+        h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em" }, "Save this place"),
+        nameI,
+        h("div", { class: "row", style: "gap:6px" }, save, cancel),
+        errEl2,
+      ),
+    );
+    nameI.focus();
+  }
 
   function renderPicked(): void {
     while (picked.firstChild) picked.removeChild(picked.firstChild);
@@ -66,18 +114,28 @@ export function locationPicker(opts: {
       picked.append(h("span", { class: "text-faint" }, "No location pinned"));
       return;
     }
-    const text = current.label ? `${current.label} (${fmtCoords(current.lat, current.lng)})` : fmtCoords(current.lat, current.lng);
+    const place = current;
+    const text = place.label ? `${place.label} (${fmtCoords(place.lat, place.lng)})` : fmtCoords(place.lat, place.lng);
     const clear = h("button", { class: "icon-btn danger", title: "Clear location", "aria-label": "Clear location", style: "padding:2px 7px" }, "✕");
     clear.onclick = () => {
       current = null;
       touchedFlag = true;
       latI.value = "";
       lngI.value = "";
+      closeSaveForm();
       renderPicked();
     };
     picked.append(
       h("span", { style: "color:var(--sky);font-weight:700;flex:none" }, "📍"),
       h("span", { style: "flex:1;min-width:0;word-break:break-word" }, text),
+      placeIsSaved(place)
+        ? h("span", { class: "text-faint", style: "font-size:0.72rem;white-space:nowrap" }, "saved")
+        : h("button", {
+            class: "btn sm ghost",
+            title: "Save this address as a place",
+            style: "white-space:nowrap;font-size:0.72rem;padding:3px 8px",
+            onclick: () => openSaveForm(place),
+          }, "☆ Save place"),
       clear,
     );
   }
@@ -109,20 +167,49 @@ export function locationPicker(opts: {
     return row;
   }
 
-  function renderHomeRow(): void {
-    const hb = home;
-    if (!hb) return;
-    results.append(
-      resultRow(
-        `🏠 Home base${hb.homeBaseAddress ? ` — ${hb.homeBaseAddress}` : ""}`,
-        fmtCoords(hb.homeBaseLat!, hb.homeBaseLng!),
-        () => {
-          setPlace({ lat: hb.homeBaseLat!, lng: hb.homeBaseLng!, label: hb.homeBaseAddress || "Home base" });
-          search.value = "";
-          hideResults();
-        },
-      ),
-    );
+  function quickPickRow(label: string, sub: string, place: PickedPlace): HTMLElement {
+    return resultRow(label, sub, () => {
+      setPlace(place);
+      search.value = "";
+      hideResults();
+    });
+  }
+
+  function renderQuickPicks(filter: string): void {
+    const q = filter.trim().toLowerCase();
+    if (home) {
+      results.append(
+        quickPickRow(
+          `🏠 Home base${home.homeBaseAddress ? ` — ${home.homeBaseAddress}` : ""}`,
+          fmtCoords(home.homeBaseLat!, home.homeBaseLng!),
+          { lat: home.homeBaseLat!, lng: home.homeBaseLng!, label: home.homeBaseAddress || "Home base" },
+        ),
+      );
+    }
+    for (const p of savedPlaces) {
+      if (q && !`${p.name} ${p.address}`.toLowerCase().includes(q)) continue;
+      results.append(
+        quickPickRow(`⭐ ${p.name}`, `${p.address ? `${p.address} • ` : ""}${fmtCoords(p.lat, p.lng)}`, {
+          lat: p.lat,
+          lng: p.lng,
+          label: p.address || p.name,
+        }),
+      );
+    }
+  }
+
+  async function loadPlaces(): Promise<void> {
+    if (placesRequested) return;
+    placesRequested = true;
+    try {
+      savedPlaces = await api.places();
+    } catch {
+      savedPlaces = [];
+    }
+    if (results.style.display === "block" && search.value.trim().length < 3) {
+      while (results.firstChild) results.removeChild(results.firstChild);
+      renderQuickPicks("");
+    }
   }
 
   let seq = 0;
@@ -138,10 +225,11 @@ export function locationPicker(opts: {
       const { results: found } = await api.geocode(query);
       if (mine !== seq) return;
       hideResults();
-      renderHomeRow();
+      renderQuickPicks(query);
       if (found.length === 0) {
         results.append(h("div", { class: "text-dim", style: "padding:8px;font-size:0.8rem" }, "No NZ addresses matched."));
       } else {
+        results.append(h("div", { class: "text-faint", style: "padding:4px 8px 2px;font-size:0.7rem" }, "Address matches"));
         for (const r of found) {
           results.append(resultRow(r.label, fmtCoords(r.lat, r.lng), () => {
             setPlace({ lat: r.lat, lng: r.lng, label: r.label });
@@ -159,6 +247,7 @@ export function locationPicker(opts: {
   }
 
   search.oninput = () => {
+    void loadPlaces();
     if (timer) clearTimeout(timer);
     const query = search.value.trim();
     if (query.length < 3) {
@@ -169,10 +258,11 @@ export function locationPicker(opts: {
     timer = setTimeout(() => void runSearch(query), 350);
   };
   search.onfocus = () => {
+    void loadPlaces();
     const query = search.value.trim();
-    if (!query && home) {
+    if (!query) {
       while (results.firstChild) results.removeChild(results.firstChild);
-      renderHomeRow();
+      renderQuickPicks("");
       results.style.display = "block";
     } else if (query.length >= 3 && results.style.display === "none") {
       void runSearch(query);
@@ -224,6 +314,7 @@ export function locationPicker(opts: {
     search,
     results,
     picked,
+    saveHolder,
     manualBtn,
     manualBox,
     errEl,

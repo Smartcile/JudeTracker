@@ -38,8 +38,12 @@ async function plateMapOfVehicleIds(vehicleIds: Array<number | null>): Promise<M
   return new Map(rows.map((r) => [r.id, r.plate]));
 }
 
+const LOG_ROLES = ["start", "end", "return"] as const;
+export type LogRole = (typeof LOG_ROLES)[number];
+const LOG_RANK: Record<LogRole, number> = { start: 0, end: 1, return: 2 };
+
 /** Attach log to a job slot, enforcing vehicle + time + reading consistency. */
-async function attachLog(jobId: number, logId: number, role: "start" | "end"): Promise<void> {
+async function attachLog(jobId: number, logId: number, role: LogRole): Promise<void> {
   const job = await requireJob(jobId);
   const log = await requireLog(logId);
   const jobRow = job.job;
@@ -54,30 +58,38 @@ async function attachLog(jobId: number, logId: number, role: "start" | "end"): P
   }
   const vehicleId = jobRow.vehicleId ?? log.vehicleId;
 
-  const otherId = role === "start" ? jobRow.endLogId : jobRow.startLogId;
-  const other = otherId != null ? await requireLog(otherId) : undefined;
-  if (other) {
-    if (other.vehicleId != null && other.vehicleId !== vehicleId) {
-      throw new HttpError(409, "Start and end photos must be of the same vehicle");
+  const slotIds: Record<LogRole, number | null> = {
+    start: jobRow.startLogId,
+    end: jobRow.endLogId,
+    return: jobRow.returnLogId,
+  };
+  if (slotIds[role] != null) {
+    throw new HttpError(
+      409,
+      `This job already has ${role === "start" ? "a start photo" : role === "end" ? "an end photo" : "a return reading"}`,
+    );
+  }
+
+  for (const other of LOG_ROLES) {
+    const otherId = slotIds[other];
+    if (otherId == null) continue;
+    const row = await requireLog(otherId);
+    if (row.vehicleId != null && row.vehicleId !== vehicleId) {
+      throw new HttpError(409, "Start, end and return logs must be of the same vehicle");
     }
-    const timeOk =
-      (role === "start" && log.takenAt.getTime() <= other.takenAt.getTime()) ||
-      (role === "end" && log.takenAt.getTime() >= other.takenAt.getTime());
+    const before = LOG_RANK[other] < LOG_RANK[role];
+    const timeOk = before
+      ? row.takenAt.getTime() <= log.takenAt.getTime()
+      : row.takenAt.getTime() >= log.takenAt.getTime();
     if (!timeOk) {
-      throw new HttpError(409, "The start photo must be taken before the end photo");
+      throw new HttpError(409, "Logs must run in order: start, then end, then return");
     }
-    const mine = log.readingKm;
-    const theirs = other.readingKm;
-    if (mine != null && theirs != null) {
-      if ((role === "start" && mine > theirs) || (role === "end" && mine < theirs)) {
+    if (row.readingKm != null && log.readingKm != null) {
+      const readingOk = before ? log.readingKm >= row.readingKm : log.readingKm <= row.readingKm;
+      if (!readingOk) {
         throw new HttpError(409, "Readings must not go backwards within a job");
       }
     }
-  }
-
-  const slotTaken = role === "start" ? jobRow.startLogId != null : jobRow.endLogId != null;
-  if (slotTaken) {
-    throw new HttpError(409, `This job already has ${role === "start" ? "a start" : "an end"} photo`);
   }
 
   if (role === "start") {
@@ -96,7 +108,7 @@ async function attachLog(jobId: number, logId: number, role: "start" | "end"): P
   await db
     .update(jobs)
     .set({
-      endLogId: logId,
+      [role === "end" ? "endLogId" : "returnLogId"]: logId,
       ...(jobRow.vehicleId == null ? { vehicleId } : {}),
       updatedAt: new Date(),
     })
@@ -188,7 +200,7 @@ logsRouter.put("/:id/photo", upload.single("photo"), async (req, res) => {
     await db
       .select()
       .from(jobs)
-      .where(or(eq(jobs.startLogId, id), eq(jobs.endLogId, id)))
+      .where(or(eq(jobs.startLogId, id), eq(jobs.endLogId, id), eq(jobs.returnLogId, id)))
   )[0];
   if (job && (job.status === "claimed" || job.status === "submitted" || job.status === "paid")) {
     throw new HttpError(409, "Claim already lodged - reopen it first to make changes");
@@ -226,7 +238,7 @@ logsRouter.patch("/:id", async (req, res) => {
     await db
       .select()
       .from(jobs)
-      .where(or(eq(jobs.startLogId, id), eq(jobs.endLogId, id)))
+      .where(or(eq(jobs.startLogId, id), eq(jobs.endLogId, id), eq(jobs.returnLogId, id)))
   )[0];
   if (job && (job.status === "claimed" || job.status === "submitted" || job.status === "paid")) {
     throw new HttpError(409, "Claim already lodged - reopen it first to make changes");
@@ -234,13 +246,24 @@ logsRouter.patch("/:id", async (req, res) => {
 
   if (body.takenAt !== undefined) {
     const takenAt = new Date(body.takenAt);
-    if (job && job.startLogId != null && job.endLogId != null) {
-      const other = await requireLog(job.startLogId === id ? job.endLogId : job.startLogId);
-      const mineIsStart = job.startLogId === id;
-      const ok = mineIsStart
-        ? takenAt.getTime() <= other.takenAt.getTime()
-        : takenAt.getTime() >= other.takenAt.getTime();
-      httpAssert(ok, 409, mineIsStart ? "The start log must stay before the end log" : "The end log must stay after the start log");
+    if (job) {
+      const chain: Array<[LogRole, number | null]> = [
+        ["start", job.startLogId],
+        ["end", job.endLogId],
+        ["return", job.returnLogId],
+      ];
+      const mine = chain.find(([, logId]) => logId === id)?.[0] ?? null;
+      if (mine) {
+        for (const [otherRole, otherId] of chain) {
+          if (otherId == null || otherId === id) continue;
+          const other = await requireLog(otherId);
+          const before = LOG_RANK[otherRole] < LOG_RANK[mine];
+          const ok = before
+            ? takenAt.getTime() >= other.takenAt.getTime()
+            : takenAt.getTime() <= other.takenAt.getTime();
+          httpAssert(ok, 409, "Logs must run in order: start, then end, then return");
+        }
+      }
     }
     updates.takenAt = takenAt;
     if (job && job.startLogId === id) {
@@ -292,6 +315,7 @@ logsRouter.delete("/:id", async (req, res) => {
   await requireLog(id);
   await db.update(jobs).set({ startLogId: null }).where(eq(jobs.startLogId, id));
   await db.update(jobs).set({ endLogId: null }).where(eq(jobs.endLogId, id));
+  await db.update(jobs).set({ returnLogId: null }).where(eq(jobs.returnLogId, id));
   await db.delete(logs).where(eq(logs.id, id));
   await removePhoto(id);
   res.json({ ok: true });

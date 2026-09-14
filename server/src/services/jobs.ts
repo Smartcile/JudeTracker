@@ -6,7 +6,7 @@ import type { JobAssembled } from "../api/mappers.ts";
 async function assemble(rows: JobRow[]): Promise<JobAssembled[]> {
   if (rows.length === 0) return [];
   const jobIds = rows.map((r) => r.id);
-  const logIds = [...new Set(rows.flatMap((r) => [r.startLogId, r.endLogId].filter((x): x is number => x != null)))];
+  const logIds = [...new Set(rows.flatMap((r) => [r.startLogId, r.endLogId, r.returnLogId].filter((x): x is number => x != null)))];
   const vehicleIds = [...new Set(rows.map((r) => r.vehicleId).filter((x): x is number => x != null))];
 
   const vehicleRows: VehicleRow[] =
@@ -22,6 +22,7 @@ async function assemble(rows: JobRow[]): Promise<JobAssembled[]> {
     vehicle: job.vehicleId != null ? vehicleById.get(job.vehicleId) : undefined,
     startLog: job.startLogId != null ? logById.get(job.startLogId) : undefined,
     endLog: job.endLogId != null ? logById.get(job.endLogId) : undefined,
+    returnLog: job.returnLogId != null ? logById.get(job.returnLogId) : undefined,
     logPlates: plateByVehicle,
   }));
 }

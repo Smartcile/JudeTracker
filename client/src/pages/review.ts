@@ -103,7 +103,9 @@ function tripRow(job: JobDto, onOpen: (job: JobDto) => void): HTMLElement {
   if (job.location) clientCell.append(h("div", { class: "text-dim", style: "font-size:0.75rem" }, job.location));
 
   const readings = h("td", { class: "mono", style: "font-size:0.8rem;color:var(--fg-dim)" },
-    `${pad(job.startLog?.readingKm ?? null, 6)} → ${pad(job.endLog?.readingKm ?? null, 6)}`);
+    job.returnLog
+      ? `${pad(job.startLog?.readingKm ?? null, 6)} → ${pad(job.endLog?.readingKm ?? null, 6)} → ${pad(job.returnLog.readingKm, 6)}`
+      : `${pad(job.startLog?.readingKm ?? null, 6)} → ${pad(job.endLog?.readingKm ?? null, 6)}`);
 
   const details = h("button", {
     class: "btn sm ghost",

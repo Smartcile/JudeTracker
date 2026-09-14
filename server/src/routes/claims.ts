@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
-import { fyWindow, tieredBlendedRateCents } from "../../../shared/claims.ts";
+import { fyWindow, tieredBlendedRateCents, tripEndKm } from "../../../shared/claims.ts";
 import { toJob } from "../api/mappers.ts";
 import { db } from "../db/index.ts";
 import { jobs } from "../db/schema.ts";
@@ -30,7 +30,7 @@ async function claimedKmSameYear(job: JobAssembled): Promise<number> {
     const s = other.job.status;
     if (s !== "claimed" && s !== "submitted" && s !== "paid") continue;
     const start = other.startLog?.readingKm;
-    const end = other.endLog?.readingKm;
+    const end = tripEndKm(other.endLog?.readingKm ?? null, other.returnLog);
     if (start == null || end == null || end < start) continue;
     total += end - start;
   }
@@ -68,11 +68,17 @@ claimsRouter.post("/jobs/:id/claim", async (req, res) => {
   }
 
   if (status === "claimed") {
-    const start = job.startLog?.readingKm;
-    const end = job.endLog?.readingKm;
+    const start = job.startLog?.readingKm ?? null;
+    const end = job.endLog?.readingKm ?? null;
     httpAssert(job.startLog && job.endLog && start != null && end != null, 409, "Both readings are needed before claiming");
+    const tripEnd = tripEndKm(end, job.returnLog);
+    httpAssert(
+      tripEnd != null,
+      409,
+      job.returnLog ? "Enter the return (home) reading before claiming" : "Both readings are needed before claiming",
+    );
     httpAssert(job.job.tripKind !== "personal", 409, "Personal trips are not claimable");
-    const jobKm = end - start;
+    const jobKm = tripEnd - start;
     const rate = await snapshotRateFor(job, jobKm);
     await db
       .update(jobs)

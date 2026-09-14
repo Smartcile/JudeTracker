@@ -1,8 +1,11 @@
 import { and, eq, ne, or } from "drizzle-orm";
 import type { JobStatus } from "../../../shared/types.ts";
+import { tripEndKm } from "../../../shared/claims.ts";
 import { db } from "../db/index.ts";
 import { jobs, logs, vehicles, type LogRow } from "../db/schema.ts";
 import { HttpError } from "../lib/http.ts";
+
+export type JobLogRole = "start" | "end" | "return";
 
 export interface ReadingContext {
   floorKm: number;
@@ -10,18 +13,18 @@ export interface ReadingContext {
   prevReadingKm: number | null;
   jobId: number | null;
   jobStatus: JobStatus | null;
-  role: "start" | "end" | null;
+  role: JobLogRole | null;
   vehicleDigits: number | null;
   canEdit: boolean;
 }
 
 export interface LogWithJob extends LogRow {
-  jobRole: "start" | "end" | null;
+  jobRole: JobLogRole | null;
   jobId: number | null;
   jobStatus: JobStatus | null;
 }
 
-/** Fetch a log together with the job (if any) that references it as start or end. */
+/** Fetch a log together with the job (if any) that references it as start, end or return. */
 export async function logWithJob(logId: number): Promise<LogWithJob | undefined> {
   const log = (await db.select().from(logs).where(eq(logs.id, logId)))[0];
   if (!log) return undefined;
@@ -29,12 +32,13 @@ export async function logWithJob(logId: number): Promise<LogWithJob | undefined>
     await db
       .select()
       .from(jobs)
-      .where(or(eq(jobs.startLogId, logId), eq(jobs.endLogId, logId)))
+      .where(or(eq(jobs.startLogId, logId), eq(jobs.endLogId, logId), eq(jobs.returnLogId, logId)))
   )[0];
   if (!job) return { ...log, jobRole: null, jobId: null, jobStatus: null };
+  const jobRole: JobLogRole = job.startLogId === logId ? "start" : job.endLogId === logId ? "end" : "return";
   return {
     ...log,
-    jobRole: job.startLogId === logId ? "start" : "end",
+    jobRole,
     jobId: job.id,
     jobStatus: job.status as JobStatus,
   };
@@ -76,21 +80,34 @@ export async function readingContext(logId: number): Promise<ReadingContext | un
 
   let floor = prev ?? 0;
   let cap: number | null = null;
-  let jobStartReading: number | null = null;
-  let jobEndReading: number | null = null;
 
   if (lwj.jobId != null) {
     const job = (await db.select().from(jobs).where(eq(jobs.id, lwj.jobId)))[0];
     if (job) {
-      if (job.startLogId != null && job.startLogId !== lwj.id) {
-        jobStartReading = (await db.select().from(logs).where(eq(logs.id, job.startLogId)))[0]?.readingKm ?? null;
+      const siblingIds: Array<[JobLogRole, number | null]> = [
+        ["start", job.startLogId],
+        ["end", job.endLogId],
+        ["return", job.returnLogId],
+      ];
+      const readings = new Map<JobLogRole, number | null>();
+      for (const [role, id] of siblingIds) {
+        if (id == null || id === lwj.id) continue;
+        readings.set(role, (await db.select().from(logs).where(eq(logs.id, id)))[0]?.readingKm ?? null);
       }
-      if (job.endLogId != null && job.endLogId !== lwj.id) {
-        jobEndReading = (await db.select().from(logs).where(eq(logs.id, job.endLogId)))[0]?.readingKm ?? null;
+      const startReading = readings.get("start") ?? null;
+      const endReading = readings.get("end") ?? null;
+      const returnReading = readings.get("return") ?? null;
+      if (lwj.jobRole === "end") {
+        if (startReading != null) floor = Math.max(floor, startReading);
+        if (returnReading != null) cap = returnReading;
+      } else if (lwj.jobRole === "return") {
+        if (startReading != null) floor = Math.max(floor, startReading);
+        if (endReading != null) floor = Math.max(floor, endReading);
+      } else if (lwj.jobRole === "start") {
+        const next = endReading ?? returnReading;
+        if (next != null) cap = next;
       }
     }
-    if (lwj.jobRole === "end" && jobStartReading != null) floor = Math.max(floor, jobStartReading);
-    if (lwj.jobRole === "start" && jobEndReading != null) cap = jobEndReading;
   }
 
   const claimed = lwj.jobStatus === "claimed" || lwj.jobStatus === "submitted" || lwj.jobStatus === "paid";
@@ -132,7 +149,11 @@ export async function setLogReading(logId: number, readingKm: number): Promise<v
     if (job && job.tripKind !== "personal") {
       const start = job.startLogId != null ? (await db.select().from(logs).where(eq(logs.id, job.startLogId)))[0] : undefined;
       const end = job.endLogId != null ? (await db.select().from(logs).where(eq(logs.id, job.endLogId)))[0] : undefined;
-      if (start?.readingKm != null && end?.readingKm != null && end.readingKm >= start.readingKm) {
+      const ret = job.returnLogId != null ? (await db.select().from(logs).where(eq(logs.id, job.returnLogId)))[0] : undefined;
+      const startKm = start?.readingKm ?? null;
+      const endKm = end?.readingKm ?? null;
+      const tripEnd = tripEndKm(endKm, ret);
+      if (startKm != null && endKm != null && tripEnd != null && tripEnd >= startKm) {
         await db.update(jobs).set({ status: "ready" }).where(eq(jobs.id, job.id));
       }
     }

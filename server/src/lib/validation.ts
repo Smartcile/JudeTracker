@@ -64,23 +64,39 @@ export const jobDateField = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
   .refine(realDay, "Not a real calendar day");
 
-export const jobCreateBody = z.object({
-  eventUid: z.string().optional(),
-  client: z.string().trim().transform(up(120)).optional(),
-  location: z.string().trim().transform(up(200)).optional(),
-  jobDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  kind: z.enum(["business", "personal"]).default("business"),
-  notes: z.string().trim().transform(up(500)).optional(),
-});
+const coordPair = {
+  locationLat: z.number().min(-90).max(90).nullable().optional(),
+  locationLng: z.number().min(-180).max(180).nullable().optional(),
+};
 
-export const jobPatchBody = z.object({
-  client: z.string().trim().min(1).transform(up(120)).optional(),
-  location: z.string().trim().transform(up(200)).optional(),
-  notes: z.string().trim().transform(up(500)).optional(),
-  eventUid: z.string().trim().min(1).max(500).nullable().optional(),
-  jobDate: jobDateField.optional(),
-  vehicleId: z.number().int().positive().nullable().optional(),
-});
+const coordsPaired = (v: { locationLat?: number | null; locationLng?: number | null }): boolean =>
+  (v.locationLat === undefined && v.locationLng === undefined) ||
+  (v.locationLat === null && v.locationLng === null) ||
+  (typeof v.locationLat === "number" && typeof v.locationLng === "number");
+
+export const jobCreateBody = z
+  .object({
+    eventUid: z.string().optional(),
+    client: z.string().trim().transform(up(120)).optional(),
+    location: z.string().trim().transform(up(200)).optional(),
+    ...coordPair,
+    jobDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    kind: z.enum(["business", "personal"]).default("business"),
+    notes: z.string().trim().transform(up(500)).optional(),
+  })
+  .refine(coordsPaired, "Set or clear the location coordinates together");
+
+export const jobPatchBody = z
+  .object({
+    client: z.string().trim().min(1).transform(up(120)).optional(),
+    location: z.string().trim().transform(up(200)).optional(),
+    ...coordPair,
+    notes: z.string().trim().transform(up(500)).optional(),
+    eventUid: z.string().trim().min(1).max(500).nullable().optional(),
+    jobDate: jobDateField.optional(),
+    vehicleId: z.number().int().positive().nullable().optional(),
+  })
+  .refine(coordsPaired, "Set or clear the location coordinates together");
 
 export const logPatchBody = z
   .object({
@@ -106,16 +122,27 @@ export const readingBody = z.object({
 
 const isoInstant = z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "Invalid timestamp");
 
-export const returnTripBody = z
-  .object({ departAt: isoInstant, arriveAt: isoInstant })
+export const returnLogBody = z
+  .object({
+    departAt: isoInstant,
+    arriveAt: isoInstant,
+    distanceKm: z.number().int().positive().max(2000).nullable().optional(),
+  })
   .refine((v) => new Date(v.arriveAt).getTime() > new Date(v.departAt).getTime(), "The return trip must arrive after it departs");
+
+export const placeBody = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80),
+  address: z.string().trim().max(200).default(""),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
 
 export const claimBody = z.object({
   status: z.enum(["claimed", "submitted", "paid"]),
 });
 
 export const logFields = z.object({
-  role: z.enum(["start", "end"]).optional(),
+  role: z.enum(["start", "end", "return"]).optional(),
   vehicleId: z.coerce.number().int().positive().optional(),
   takenAt: z.string().optional(),
   lat: z.coerce.number().min(-90).max(90).nullable().optional(),

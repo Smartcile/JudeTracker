@@ -33,6 +33,8 @@ export interface JobDto {
   id: number;
   client: string;
   location: string;
+  locationLat: number | null;
+  locationLng: number | null;
   notes: string;
   jobDate: string;
   eventUid: string | null;
@@ -42,6 +44,7 @@ export interface JobDto {
   vehiclePlate: string | null;
   startLogId: number | null;
   endLogId: number | null;
+  returnLogId: number | null;
   km: number | null;
   effectiveRateCents: number | null;
   amountCents: number | null;
@@ -51,6 +54,15 @@ export interface JobDto {
   createdAt: string;
   startLog: LogDto | null;
   endLog: LogDto | null;
+  returnLog: LogDto | null;
+}
+
+export interface PlaceDto {
+  id: number;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
 }
 
 export interface CalEventDto {
@@ -89,7 +101,7 @@ export interface ReadingInfoDto {
   log: LogDto;
   jobId: number | null;
   jobStatus: JobStatus | null;
-  role: "start" | "end" | null;
+  role: "start" | "end" | "return" | null;
   vehicleDigits: number | null;
   floorKm: number;
   canEdit: boolean;

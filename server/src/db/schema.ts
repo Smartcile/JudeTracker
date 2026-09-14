@@ -72,10 +72,22 @@ export const logs = pgTable("logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const places = pgTable("places", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  address: text("address").notNull().default(""),
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const jobs = pgTable("jobs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   client: text("client").notNull(),
   location: text("location").notNull().default(""),
+  locationLat: doublePrecision("location_lat"),
+  locationLng: doublePrecision("location_lng"),
   notes: text("notes").notNull().default(""),
   jobDate: date("job_date").notNull(),
   eventUid: text("event_uid"),
@@ -84,6 +96,7 @@ export const jobs = pgTable("jobs", {
   vehicleId: integer("vehicle_id").references(() => vehicles.id),
   startLogId: integer("start_log_id").references(() => logs.id),
   endLogId: integer("end_log_id").references(() => logs.id),
+  returnLogId: integer("return_log_id").references(() => logs.id),
   rateCents: integer("rate_cents"),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
@@ -103,3 +116,4 @@ export type VehicleRow = typeof vehicles.$inferSelect;
 export type CalendarEventRow = typeof calendarEvents.$inferSelect;
 export type LogRow = typeof logs.$inferSelect;
 export type JobRow = typeof jobs.$inferSelect;
+export type PlaceRow = typeof places.$inferSelect;

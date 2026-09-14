@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobCreateBody, jobPatchBody, logPatchBody, returnTripBody, settingsBody } from "../src/lib/validation.ts";
+import { jobCreateBody, jobPatchBody, logPatchBody, placeBody, returnLogBody, settingsBody } from "../src/lib/validation.ts";
 
 describe("jobPatchBody", () => {
   it("accepts jobDate in YYYY-MM-DD", () => {
@@ -110,18 +110,50 @@ describe("settingsBody", () => {
   });
 });
 
-describe("returnTripBody", () => {
+describe("returnLogBody", () => {
   it("accepts an arrival after departure", () => {
-    const r = returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z" });
+    const r = returnLogBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z" });
     expect(new Date(r.arriveAt).getTime()).toBeGreaterThan(new Date(r.departAt).getTime());
   });
 
+  it("accepts an optional whole-km distance", () => {
+    const r = returnLogBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z", distanceKm: 25 });
+    expect(r.distanceKm).toBe(25);
+    const none = returnLogBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z" });
+    expect(none.distanceKm).toBeUndefined();
+  });
+
+  it("rejects fractional, zero or absurd distances", () => {
+    const base = { departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z" };
+    expect(() => returnLogBody.parse({ ...base, distanceKm: 2.5 })).toThrow();
+    expect(() => returnLogBody.parse({ ...base, distanceKm: 0 })).toThrow();
+    expect(() => returnLogBody.parse({ ...base, distanceKm: 5000 })).toThrow();
+  });
+
   it("rejects an arrival before or at departure", () => {
-    expect(() => returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T09:55:00Z" })).toThrow();
-    expect(() => returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:00:00Z" })).toThrow();
+    expect(() => returnLogBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T09:55:00Z" })).toThrow();
+    expect(() => returnLogBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:00:00Z" })).toThrow();
   });
 
   it("rejects garbage timestamps", () => {
-    expect(() => returnTripBody.parse({ departAt: "nope", arriveAt: "2026-09-14T10:25:00Z" })).toThrow();
+    expect(() => returnLogBody.parse({ departAt: "nope", arriveAt: "2026-09-14T10:25:00Z" })).toThrow();
+  });
+});
+
+describe("placeBody", () => {
+  it("accepts a named place with coordinates", () => {
+    const r = placeBody.parse({ name: "  Sarah's place ", address: "12 Kowhai Rd", lat: -41.28, lng: 174.77 });
+    expect(r.name).toBe("Sarah's place");
+    expect(r.address).toBe("12 Kowhai Rd");
+  });
+
+  it("defaults a missing address", () => {
+    expect(placeBody.parse({ name: "Gym", lat: -41.28, lng: 174.77 }).address).toBe("");
+  });
+
+  it("rejects a blank name or out-of-range coordinates", () => {
+    expect(() => placeBody.parse({ name: "  ", lat: -41.28, lng: 174.77 })).toThrow();
+    expect(() => placeBody.parse({ name: "Gym", lat: -91, lng: 174.77 })).toThrow();
+    expect(() => placeBody.parse({ name: "Gym", lat: -41.28, lng: 181 })).toThrow();
   });
 });

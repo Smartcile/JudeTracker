@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toCalEvent, toJob, toLog, toSettings, toVehicle } from "../src/api/mappers.ts";
-import type { CalendarEventRow, JobRow, LogRow, SettingsRow, VehicleRow } from "../src/db/schema.ts";
+import { toCalEvent, toJob, toLog, toPlace, toSettings, toVehicle } from "../src/api/mappers.ts";
+import type { CalendarEventRow, JobRow, LogRow, PlaceRow, SettingsRow, VehicleRow } from "../src/db/schema.ts";
 
 const t = (iso: string) => new Date(iso);
 
@@ -43,6 +43,8 @@ function jobRow(partial: Partial<JobRow>): JobRow {
     id: 10,
     client: "ACME PLUMBING",
     location: "12 KOWHAI RD",
+    locationLat: null,
+    locationLng: null,
     notes: "",
     jobDate: "2026-09-09",
     eventUid: null,
@@ -51,6 +53,7 @@ function jobRow(partial: Partial<JobRow>): JobRow {
     vehicleId: 1,
     startLogId: 1,
     endLogId: 2,
+    returnLogId: null,
     rateCents: null,
     claimedAt: null,
     submittedAt: null,
@@ -122,6 +125,49 @@ describe("toJob", () => {
     const dto = toJob({ job: jobRow({}), vehicle, logPlates: plateMap });
     expect(dto.km).toBeNull();
     expect(dto.amountCents).toBeNull();
+  });
+
+  it("uses the return reading as the trip end when a return leg exists", () => {
+    const dto = toJob({
+      job: jobRow({ returnLogId: 3 }),
+      vehicle,
+      startLog: logRow(1, 100000),
+      endLog: logRow(2, 100230),
+      returnLog: logRow(3, 100260),
+      logPlates: plateMap,
+    });
+    expect(dto.km).toBe(260);
+    expect(dto.amountCents).toBe(260 * 95);
+    expect(dto.returnLog?.readingKm).toBe(100260);
+  });
+
+  it("keeps a trip with an unread return leg incomplete", () => {
+    const dto = toJob({
+      job: jobRow({ returnLogId: 3 }),
+      vehicle,
+      startLog: logRow(1, 100000),
+      endLog: logRow(2, 100230),
+      returnLog: logRow(3, null),
+      logPlates: plateMap,
+    });
+    expect(dto.km).toBeNull();
+    expect(dto.amountCents).toBeNull();
+  });
+});
+
+describe("toPlace", () => {
+  it("maps a saved place", () => {
+    const row: PlaceRow = {
+      id: 7,
+      name: "Sarah's place",
+      address: "12 Kowhai Rd, Wellington",
+      lat: -41.28,
+      lng: 174.77,
+      createdAt: t("2026-01-01T00:00:00Z"),
+      updatedAt: t("2026-01-01T00:00:00Z"),
+    };
+    const p = toPlace(row);
+    expect(p).toEqual({ id: 7, name: "Sarah's place", address: "12 Kowhai Rd, Wellington", lat: -41.28, lng: 174.77 });
   });
 });
 
