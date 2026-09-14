@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobCreateBody, jobPatchBody, logPatchBody } from "../src/lib/validation.ts";
+import { jobCreateBody, jobPatchBody, logPatchBody, returnTripBody, settingsBody } from "../src/lib/validation.ts";
 
 describe("jobPatchBody", () => {
   it("accepts jobDate in YYYY-MM-DD", () => {
@@ -76,5 +76,52 @@ describe("logPatchBody", () => {
 
   it("accepts an empty patch and lets the route say nothing-to-update", () => {
     expect(logPatchBody.parse({})).toEqual({});
+  });
+});
+
+describe("settingsBody", () => {
+  it("accepts a partial update", () => {
+    const r = settingsBody.parse({ homeBaseAddress: "1 Home Rd" });
+    expect(r.homeBaseAddress).toBe("1 Home Rd");
+  });
+
+  it("accepts home base coordinates as a pair", () => {
+    const r = settingsBody.parse({ homeBaseLat: -41.1, homeBaseLng: 174.6 });
+    expect(r.homeBaseLat).toBe(-41.1);
+    expect(r.homeBaseLng).toBe(174.6);
+  });
+
+  it("accepts clearing the home base coordinates", () => {
+    const r = settingsBody.parse({ homeBaseLat: null, homeBaseLng: null });
+    expect(r.homeBaseLat).toBeNull();
+    expect(r.homeBaseLng).toBeNull();
+  });
+
+  it("rejects a half-set home base", () => {
+    expect(() => settingsBody.parse({ homeBaseLat: -41.1 })).toThrow();
+    expect(() => settingsBody.parse({ homeBaseLng: 174.6 })).toThrow();
+    expect(() => settingsBody.parse({ homeBaseLat: -41.1, homeBaseLng: null })).toThrow();
+    expect(() => settingsBody.parse({ homeBaseLat: null, homeBaseLng: 174.6 })).toThrow();
+  });
+
+  it("rejects out-of-range home base coordinates", () => {
+    expect(() => settingsBody.parse({ homeBaseLat: -91, homeBaseLng: 174.6 })).toThrow();
+    expect(() => settingsBody.parse({ homeBaseLat: -41.1, homeBaseLng: 181 })).toThrow();
+  });
+});
+
+describe("returnTripBody", () => {
+  it("accepts an arrival after departure", () => {
+    const r = returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:25:00Z" });
+    expect(new Date(r.arriveAt).getTime()).toBeGreaterThan(new Date(r.departAt).getTime());
+  });
+
+  it("rejects an arrival before or at departure", () => {
+    expect(() => returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T09:55:00Z" })).toThrow();
+    expect(() => returnTripBody.parse({ departAt: "2026-09-14T10:00:00Z", arriveAt: "2026-09-14T10:00:00Z" })).toThrow();
+  });
+
+  it("rejects garbage timestamps", () => {
+    expect(() => returnTripBody.parse({ departAt: "nope", arriveAt: "2026-09-14T10:25:00Z" })).toThrow();
   });
 });

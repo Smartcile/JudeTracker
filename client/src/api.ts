@@ -2,6 +2,7 @@ import type {
   AuthStateDto,
   CalEventDto,
   ClaimSummaryDto,
+  GeocodeResultDto,
   JobDto,
   SettingsDto,
   VehicleDto,
@@ -51,8 +52,7 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/api/auth/logout", json("POST")),
 
   settings: () => request<SettingsDto>("/api/settings"),
-  saveSettings: (s: Partial<SettingsDto>) =>
-    request<SettingsDto>("/api/settings", json("PUT", { ...s, calendarUrl: s.calendarUrl || null })),
+  saveSettings: (s: Partial<SettingsDto>) => request<SettingsDto>("/api/settings", json("PUT", s)),
   changePin: (currentPin: string, newPin: string) =>
     request<{ ok: boolean }>("/api/settings/pin", json("POST", { currentPin, newPin })),
 
@@ -73,6 +73,9 @@ export const api = {
   calendarEventByUid: (uid: string) =>
     request<CalEventDto[]>(`/api/calendar/events?${new URLSearchParams({ uid })}`).then((rows) => rows[0] ?? null),
 
+  geocode: (query: string) =>
+    request<{ results: GeocodeResultDto[] }>(`/api/geocode?${new URLSearchParams({ q: query })}`),
+
   jobs: () => request<JobDto[]>("/api/jobs"),
   createJob: (body: { eventUid?: string; client?: string; location?: string; jobDate?: string; kind?: "business" | "personal"; notes?: string }) =>
     request<JobDto>("/api/jobs", json("POST", body)),
@@ -90,6 +93,8 @@ export const api = {
   claim: (id: number, status: "claimed" | "submitted" | "paid") =>
     request<JobDto>(`/api/jobs/${id}/claim`, json("POST", { status })),
   reopen: (id: number) => request<JobDto>(`/api/jobs/${id}/reopen`, json("POST")),
+  createReturnTrip: (id: number, body: { departAt: string; arriveAt: string }) =>
+    request<JobDto>(`/api/jobs/${id}/return-trip`, json("POST", body)),
   deleteJob: (id: number) => request<{ ok: boolean }>(`/api/jobs/${id}`, json("DELETE")),
 
   /** Upload a photo log for a job. photo may be null for a manual ("Later on") log. */

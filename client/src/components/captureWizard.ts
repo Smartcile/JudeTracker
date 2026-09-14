@@ -2,6 +2,8 @@ import { api, ApiError } from "../api.ts";
 import { showModal } from "./modal.ts";
 import { toast } from "./toast.ts";
 import { h } from "../dom.ts";
+import { locationPicker } from "./locationPicker.ts";
+import { lastTravelMinutes, timingHelper } from "./timingHelper.ts";
 import type { JobDto } from "../../../shared/types.ts";
 
 export interface CaptureContext {
@@ -16,14 +18,6 @@ const GPS_TIMEOUT_MS = 3500; // never block saving on a pending GPS fix
 
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString("en-NZ", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Local YYYY-MM-DDTHH:MM value for an <input type=datetime-local>. */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function getPosition(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
@@ -42,9 +36,15 @@ function getPosition(): Promise<{ lat: number; lng: number; accuracy: number } |
 
 /**
  * Phone-style odometer capture: Take photo / Use an existing photo (both save
- * automatically on selection), or "Later on" to log without a photo.
+ * automatically on selection), or "Later on" for a no-photo log with manual
+ * arrival time, travel time from home base and an NZ address lookup.
  */
-export function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<void>): void {
+export async function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<void>): Promise<void> {
+  const settings = await api.settings().catch(() => null);
+  const homeBase = settings
+    ? { homeBaseAddress: settings.homeBaseAddress, homeBaseLat: settings.homeBaseLat, homeBaseLng: settings.homeBaseLng }
+    : null;
+
   const label = ctx.role === "start" ? "Start photo (before you drive)" : "End photo (trip finished)";
   const hiddenInputStyle = "position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none";
   const fileInput = h("input", { type: "file", accept: "image/*", capture: "environment", style: hiddenInputStyle }) as HTMLInputElement;
@@ -69,51 +69,34 @@ export function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<voi
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem;margin:0" });
   const buttons: HTMLButtonElement[] = [];
 
-  const manualToggle = h("button", { class: "btn ghost sm", style: "align-self:flex-start" }, "Set date, time & location manually");
-  const manualPanel = h("div", { class: "col", style: "gap:6px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)" });
-  let takenDirty = false;
-  const whenI = h("input", { class: "neon-input", type: "datetime-local", value: toLocalInput(takenAt.toISOString()) }) as HTMLInputElement;
-  whenI.oninput = () => {
-    takenDirty = true;
-  };
-  const latI = h("input", { class: "neon-input", type: "number", step: "any", min: "-90", max: "90", placeholder: "Latitude" }) as HTMLInputElement;
-  const lngI = h("input", { class: "neon-input", type: "number", step: "any", min: "-180", max: "180", placeholder: "Longitude" }) as HTMLInputElement;
-  manualToggle.onclick = () => {
-    const open = manualPanel.style.display === "none";
-    manualPanel.style.display = open ? "flex" : "none";
-    manualToggle.textContent = open ? "Use photo time / live GPS instead" : "Set date, time & location manually";
-  };
-  manualPanel.append(
-    h("div", { class: "col", style: "gap:2px" },
-      h("span", { class: "text-dim", style: "font-size:0.72rem;font-weight:600" }, "When"),
-      whenI,
-    ),
-    h("div", { class: "grid", style: "grid-template-columns:1fr 1fr;gap:6px" },
-      h("div", { class: "col", style: "gap:2px" },
-        h("span", { class: "text-dim", style: "font-size:0.72rem;font-weight:600" }, "Latitude"),
-        latI,
-      ),
-      h("div", { class: "col", style: "gap:2px" },
-        h("span", { class: "text-dim", style: "font-size:0.72rem;font-weight:600" }, "Longitude"),
-        lngI,
-      ),
-    ),
-    h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
-      "Leave coordinates empty to keep the live GPS / photo EXIF location. Type both to pin a manual location instead."),
-  );
+  const picker = locationPicker({
+    lat: ctx.role === "start" ? settings?.homeBaseLat ?? null : null,
+    lng: ctx.role === "start" ? settings?.homeBaseLng ?? null : null,
+    label: ctx.role === "start" ? settings?.homeBaseAddress ?? "" : "",
+    homeBase,
+    placeholder: ctx.role === "end" ? "Search the client's NZ address…" : "Search a NZ address…",
+  });
+  if (ctx.role === "end" && ctx.job.location) picker.prefill(ctx.job.location);
 
-  function manualLocation(): { lat: number; lng: number } | null {
-    const latRaw = latI.value.trim();
-    const lngRaw = lngI.value.trim();
-    if (latRaw === "" && lngRaw === "") return null;
-    const latNum = Number(latRaw);
-    const lngNum = Number(lngRaw);
-    if (latRaw === "" || lngRaw === "" || !Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
-      errEl.textContent = "Enter both latitude and longitude to set a manual location.";
-      return null;
-    }
-    return { lat: latNum, lng: lngNum };
+  const timing = timingHelper({
+    role: ctx.role,
+    arrivalIso: takenAt.toISOString(),
+    durationMinutes: ctx.role === "start" ? lastTravelMinutes() : null,
+  });
+  if (ctx.job.eventUid) {
+    api
+      .calendarEventByUid(ctx.job.eventUid)
+      .then((ev) => {
+        if (ev?.startAt) timing.prefillArrival(ev.startAt);
+      })
+      .catch(() => {
+        /* no linked event reachable */
+      });
   }
+
+  const manualPanel = h("div", { class: "col", style: "gap:10px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:10px;background:rgba(15,23,42,0.35)" });
+  const saveManualBtn = h("button", { class: "btn primary", style: "width:100%" }, "Save without photo");
+  const backBtn = h("button", { class: "btn ghost sm", style: "align-self:flex-start" }, "‹ Back to photo options");
 
   function setBusy(value: boolean): void {
     for (const b of buttons) b.disabled = value;
@@ -154,27 +137,27 @@ export function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<voi
     setBusy(true);
     errEl.textContent = "";
     if (locating) await locating;
-    const coordsGiven = latI.value.trim() !== "" || lngI.value.trim() !== "";
-    const manualPos = manualLocation();
-    if (coordsGiven && !manualPos) {
-      setBusy(false);
-      return;
-    }
-    if (!whenI.value) {
-      errEl.textContent = "Enter the date and time first.";
-      setBusy(false);
-      return;
-    }
     try {
-      const chosenIso = takenDirty && whenI.value ? new Date(whenI.value).toISOString() : takenAt.toISOString();
       const fields: Record<string, string | number> = {
         role: ctx.role,
         vehicleId: ctx.vehicleId,
-        takenAt: chosenIso,
       };
-      if (manualPos) {
-        fields.lat = manualPos.lat;
-        fields.lng = manualPos.lng;
+      const pickErr = picker.error();
+      if (pickErr) {
+        errEl.textContent = pickErr;
+        setBusy(false);
+        return;
+      }
+      const place = picker.get();
+      const usePicked = place != null && (!photo || picker.touched());
+      if (photo) {
+        fields.takenAt = takenAt.toISOString();
+      } else {
+        fields.takenAt = timing.iso();
+      }
+      if (usePicked) {
+        fields.lat = place.lat;
+        fields.lng = place.lng;
         fields.gpsSource = "manual";
       } else if (lat != null && lng != null) {
         fields.lat = lat;
@@ -188,7 +171,7 @@ export function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<voi
         toast("Photo logged — enter the reading on the Review page");
         await onDone();
       } else {
-        toast(`Saved at ${fmtTime(chosenIso)} without a photo — the reading can be set now or later`);
+        toast(`Saved at ${fmtTime(String(fields.takenAt))} without a photo — the reading can be set now or later`);
         await onDone();
         ctx.onManualSaved?.(saved);
       }
@@ -210,26 +193,56 @@ export function openCaptureWizard(ctx: CaptureContext, onDone: () => Promise<voi
     startLocate();
     pickFile(pickInput);
   };
-  const laterBtn = h("button", { class: "btn ghost", style: "width:100%" }, "Later on — save now without a photo");
-  laterBtn.onclick = async () => {
+  const photoSection = h("div", { class: "col", style: "gap:8px" },
+    preview,
+    info,
+    h("div", { class: "col", style: "gap:6px" }, camBtn, pickBtn),
+  );
+  const divider = h("p", { class: "text-faint", style: "font-size:0.72rem;text-align:center;margin:0" }, "— or —");
+  const laterBtn = h("button", { class: "btn ghost", style: "width:100%" }, "Later on — no photo, enter details");
+  laterBtn.onclick = () => {
     errEl.textContent = "";
     startLocate();
-    await saveNow(null);
+    photoSection.style.display = "none";
+    divider.style.display = "none";
+    laterBtn.style.display = "none";
+    manualPanel.style.display = "flex";
+    (manualPanel.querySelector("input") as HTMLInputElement | null)?.focus();
   };
-  buttons.push(camBtn, pickBtn, laterBtn);
+  backBtn.onclick = () => {
+    manualPanel.style.display = "none";
+    photoSection.style.display = "";
+    divider.style.display = "";
+    laterBtn.style.display = "";
+  };
+  saveManualBtn.onclick = () => {
+    errEl.textContent = "";
+    void saveNow(null);
+  };
+  buttons.push(camBtn, pickBtn, laterBtn, saveManualBtn);
+
+  manualPanel.append(
+    h("div", { class: "row spread" },
+      h("span", { style: "font-weight:600;font-size:0.85rem" }, "No photo — set the trip time & location"),
+      backBtn,
+    ),
+    timing.el,
+    h("div", { class: "field", style: "margin:0" },
+      h("label", {}, ctx.role === "start" ? "Leaving from" : "Arriving at"),
+      picker.el,
+    ),
+    saveManualBtn,
+  );
 
   preview.append(previewImg);
   const modal = showModal({
     title: "Log odometer",
     body: h("div", { class: "col" },
       h("div", { style: "font-weight:600" }, `${ctx.job.client} — ${label}`),
-      preview,
-      info,
-      manualToggle,
-      manualPanel,
-      h("div", { class: "col", style: "gap:6px" }, camBtn, pickBtn),
-      h("p", { class: "text-faint", style: "font-size:0.72rem;text-align:center;margin:0" }, "— or —"),
+      photoSection,
+      divider,
       laterBtn,
+      manualPanel,
       errEl,
       fileInput,
       pickInput,

@@ -25,11 +25,15 @@ Milestones marked done shipped in v0.1; the rest are candidate improvements, rou
 - [x] Car picker in the trip popup: pick/change the trip's car while it's unclaimed and no reading is entered (attached photo logs move with it; a reading or a lodged claim pins the car), plus a compact inline add-a-car form (plate, make/model, $/km)
 - [x] Calendar-event linking in the trip popup now has two modes: search, and a month browser with ‹ › month navigation + Today (click a booking/day to link)
 - [x] Capture wizard "Set date, time & location manually" (backdate for existing-photo / Later-on logs; manual coords pin a location instead of live GPS/EXIF)
+- [x] Manual no-photo trips streamlined: "Later on" opens a manual form with the linked booking's start time as the **arrival**, a 5-minute travel-time picker (start log = arrival − travel, last-used duration remembered), and the client's NZ address prefilled for lookup
+- [x] Home base setting (Settings → Home base, NZ address search): outbound manual starts default to it, and **Log drive home** in the trip popup creates the client → home return leg as its own trip with two manual logs
+- [x] NZ address lookup (OpenStreetMap Nominatim, NZ-only) proxied server-side and cached in Postgres, so previously searched addresses keep resolving when the internet is down; typed coordinates remain the fallback
 - [x] Format-proof photo uploads: HEIC/HEIF (iPhone/Android) decoded in-process via `heic-decode`, every accepted image normalized to a single 1920px JPEG (EXIF kept) + 480px thumbnail; originals are no longer stored (legacy `orig.*` files still served)
 
 ## Next candidates (not built — do not add without asking)
 
 - [ ] **Manual pairing / re-pairing of photos to job slots** (a boundary photo between two jobs on one outing currently can't belong to both)
+- [ ] **Fully offline NZ address search** — import the LINZ NZ Addresses dataset (separate download/index, much larger image); the current Nominatim lookup is cached server-side so repeats work offline
 - [ ] Odometer OCR — auto-read the reading from the photo, dial pre-filled for confirmation
 - [ ] Offline photo queue on the phone (queue uploads when the home network is unreachable)
 - [ ] Photo viewing on the phone from the Review page in the field (already possible on laptop)

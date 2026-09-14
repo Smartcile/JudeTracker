@@ -29,6 +29,13 @@
       "when": 1788932293197,
       "tag": "0003_illegal_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789363505633,
+      "tag": "0004_conscious_black_queen",
+      "breakpoints": true
     }
   ]
 }

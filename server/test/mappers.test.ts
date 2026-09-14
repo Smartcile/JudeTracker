@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toCalEvent, toJob, toLog, toVehicle } from "../src/api/mappers.ts";
-import type { CalendarEventRow, JobRow, LogRow, VehicleRow } from "../src/db/schema.ts";
+import { toCalEvent, toJob, toLog, toSettings, toVehicle } from "../src/api/mappers.ts";
+import type { CalendarEventRow, JobRow, LogRow, SettingsRow, VehicleRow } from "../src/db/schema.ts";
 
 const t = (iso: string) => new Date(iso);
 
@@ -122,6 +122,30 @@ describe("toJob", () => {
     const dto = toJob({ job: jobRow({}), vehicle, logPlates: plateMap });
     expect(dto.km).toBeNull();
     expect(dto.amountCents).toBeNull();
+  });
+});
+
+describe("toSettings", () => {
+  it("maps the home base fields", () => {
+    const row: SettingsRow = {
+      id: 1,
+      pinHash: null,
+      timezone: "Pacific/Auckland",
+      calendarUrl: null,
+      calendarLabel: "Client calendar",
+      homeBaseAddress: "1 Home Rd",
+      homeBaseLat: -41.1,
+      homeBaseLng: 174.6,
+      lastSyncAt: null,
+      syncError: null,
+      createdAt: t("2026-01-01T00:00:00Z"),
+      updatedAt: t("2026-01-01T00:00:00Z"),
+    };
+    const s = toSettings(row);
+    expect(s.homeBaseAddress).toBe("1 Home Rd");
+    expect(s.homeBaseLat).toBe(-41.1);
+    expect(s.homeBaseLng).toBe(174.6);
+    expect(s.pinSet).toBe(false);
   });
 });
 

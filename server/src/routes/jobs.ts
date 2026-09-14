@@ -5,8 +5,9 @@ import { toJob, type JobAssembled } from "../api/mappers.ts";
 import { db } from "../db/index.ts";
 import { calendarEvents, jobs, logs, vehicles } from "../db/schema.ts";
 import { HttpError, httpAssert } from "../lib/http.ts";
+import { buildReturnTrip } from "../lib/returnTrip.ts";
 import { ensureSettings } from "../lib/settingsStore.ts";
-import { jobCreateBody, jobPatchBody } from "../lib/validation.ts";
+import { jobCreateBody, jobPatchBody, returnTripBody } from "../lib/validation.ts";
 import { loadJob, loadJobs } from "../services/jobs.ts";
 import { removePhoto } from "../services/photos.ts";
 
@@ -119,6 +120,42 @@ jobsRouter.patch("/:id", async (req, res) => {
   res.json(toJob(await requireJob(id)));
 });
 
+
+/** Creates the client → home return leg as a companion trip with two manual logs. */
+jobsRouter.post("/:id/return-trip", async (req, res) => {
+  const id = Number(req.params.id);
+  const { departAt, arriveAt } = returnTripBody.parse(req.body);
+  const job = await requireJob(id);
+  const settings = await ensureSettings();
+  httpAssert(job.job.vehicleId != null, 409, "Pick a car for this trip first");
+  httpAssert(settings.homeBaseLat != null && settings.homeBaseLng != null, 400, "Set a home base in Settings first");
+
+  const values = buildReturnTrip({
+    job: job.job,
+    outboundEnd: job.endLog,
+    homeBase: { address: settings.homeBaseAddress, lat: settings.homeBaseLat, lng: settings.homeBaseLng },
+    departAt: new Date(departAt),
+    arriveAt: new Date(arriveAt),
+    timezone: settings.timezone,
+  });
+
+  const created = await db.transaction(async (tx) => {
+    const jobRows = await tx.insert(jobs).values(values.job).returning();
+    const returnJob = jobRows[0];
+    httpAssert(returnJob, 500, "Failed to create return trip");
+    const startRows = await tx.insert(logs).values(values.startLog).returning();
+    const endRows = await tx.insert(logs).values(values.endLog).returning();
+    const startLog = startRows[0];
+    const endLog = endRows[0];
+    httpAssert(startLog && endLog, 500, "Failed to create return logs");
+    await tx
+      .update(jobs)
+      .set({ startLogId: startLog.id, endLogId: endLog.id, updatedAt: new Date() })
+      .where(eq(jobs.id, returnJob.id));
+    return returnJob;
+  });
+  res.status(201).json(toJob(await requireJob(created.id)));
+});
 
 /** Deletes a job and its own photos/logs. Logs still referenced by another job are kept. */
 jobsRouter.delete("/:id", async (req, res) => {

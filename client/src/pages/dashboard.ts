@@ -195,7 +195,7 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
       h("div", { class: "metric-value" }, value),
       h("div", { class: "metric-sub" }, sub),
     );
-  const metrics = h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:18px" },
+  const metrics = h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px" },
     metric("Open trips", "amber", String(open.length), "awaiting photos or readings"),
     metric("Trips today", "teal", String(todayTrips.length), "started or in progress"),
     metric("Lodged this FY", "green", formatNzd(lodgedAmount), `${lodged.length} claimed / submitted / paid`),
@@ -267,7 +267,7 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
         const vehicleId = j.vehicleId ?? Number(localStorage.getItem(LAST_VEHICLE_KEY) ?? 0);
         const v = vehiclesById.get(vehicleId) ?? vehicles.find((x) => x.active) ?? vehicles[0];
         if (!v) return;
-        openCaptureWizard({ job: j, role: j.startLogId == null ? "start" : "end", vehicleId: v.id, onManualSaved: manualSavedPopup }, rerender);
+        void openCaptureWizard({ job: j, role: j.startLogId == null ? "start" : "end", vehicleId: v.id, onManualSaved: manualSavedPopup }, rerender);
       };
       const del = h("button", { class: "icon-btn danger", title: "Delete trip", "aria-label": "Delete trip" }, "✕");
       del.onclick = (e: Event) => {
@@ -276,7 +276,7 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
       };
       row.append(
         thumbOf(j.startLog),
-        h("div", { class: "col", style: "gap:1px;flex:1;min-width:0" },
+        h("div", { class: "col trip-main", style: "gap:1px" },
           h("span", { style: "font-weight:600" }, j.client),
           h("span", { class: "text-dim", style: "font-size:0.78rem" },
             `${j.jobDate}${j.vehiclePlate ? ` • ${j.vehiclePlate}` : ""}${j.startLog?.takenAt ? ` • start ${fmtTime(j.startLog.takenAt)}` : ""}`),
@@ -325,7 +325,7 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
         void confirmDeleteTrip(j);
       };
       row.append(
-        h("div", { class: "col", style: "gap:1px;flex:1;min-width:0" },
+        h("div", { class: "col trip-main", style: "gap:1px" },
           h("div", { class: "row", style: "gap:8px" },
             h("span", { style: "font-weight:600" }, j.client),
             kindChip,
@@ -353,7 +353,7 @@ function startCapture(vehicles: VehicleDto[]): void {
     const v = vehiclesById.get(vehicleId) ?? vehicles.find((x) => x.active) ?? vehicles[0];
     if (!v) return;
     localStorage.setItem(LAST_VEHICLE_KEY, String(v.id));
-    openCaptureWizard({ job, role, vehicleId: v.id, onManualSaved: manualSavedPopup }, rerender);
+    void openCaptureWizard({ job, role, vehicleId: v.id, onManualSaved: manualSavedPopup }, rerender);
   });
 }
 

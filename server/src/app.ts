@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth.ts";
 import { settingsRouter } from "./routes/settings.ts";
 import { vehiclesRouter } from "./routes/vehicles.ts";
 import { calendarRouter } from "./routes/calendar.ts";
+import { geocodeRouter } from "./routes/geocode.ts";
 import { jobsRouter } from "./routes/jobs.ts";
 import { jobsLogsRouter, logsRouter } from "./routes/logs.ts";
 import { claimsRouter } from "./routes/claims.ts";
@@ -26,6 +27,7 @@ export function createApp(): Express {
   app.use("/api/settings", settingsRouter);
   app.use("/api/vehicles", vehiclesRouter);
   app.use("/api/calendar", calendarRouter);
+  app.use("/api/geocode", geocodeRouter);
   app.use("/api", jobsLogsRouter);
   app.use("/api/jobs", jobsRouter);
   app.use("/api/logs", logsRouter);

@@ -32,11 +32,22 @@ export const vehicleBody = z
     };
   });
 
-export const settingsBody = z.object({
-  timezone: z.string().min(1).max(64).default("Pacific/Auckland"),
-  calendarUrl: z.string().trim().url("Calendar link must be a URL").nullable(),
-  calendarLabel: z.string().trim().max(80).default("Client calendar"),
-});
+export const settingsBody = z
+  .object({
+    timezone: z.string().min(1).max(64).optional(),
+    calendarUrl: z.string().trim().url("Calendar link must be a URL").nullable().optional(),
+    calendarLabel: z.string().trim().max(80).optional(),
+    homeBaseAddress: z.string().trim().max(200).optional(),
+    homeBaseLat: z.number().min(-90).max(90).nullable().optional(),
+    homeBaseLng: z.number().min(-180).max(180).nullable().optional(),
+  })
+  .refine(
+    (v) =>
+      (v.homeBaseLat === undefined && v.homeBaseLng === undefined) ||
+      (v.homeBaseLat === null && v.homeBaseLng === null) ||
+      (typeof v.homeBaseLat === "number" && typeof v.homeBaseLng === "number"),
+    "Set or clear the home base coordinates together",
+  );
 
 const up = (max: number) => (s: string) => s.trim().toUpperCase().slice(0, max);
 
@@ -92,6 +103,12 @@ export const pairBody = z.object({
 export const readingBody = z.object({
   readingKm: z.number().int().min(0),
 });
+
+const isoInstant = z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "Invalid timestamp");
+
+export const returnTripBody = z
+  .object({ departAt: isoInstant, arriveAt: isoInstant })
+  .refine((v) => new Date(v.arriveAt).getTime() > new Date(v.departAt).getTime(), "The return trip must arrive after it departs");
 
 export const claimBody = z.object({
   status: z.enum(["claimed", "submitted", "paid"]),

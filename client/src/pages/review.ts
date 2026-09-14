@@ -150,8 +150,8 @@ export async function renderReview(root: HTMLElement): Promise<void> {
   );
   root.append(head);
 
-  const fromInput = h("input", { class: "neon-input", type: "date", value: fromVal, style: "width:auto" }) as HTMLInputElement;
-  const toInput = h("input", { class: "neon-input", type: "date", value: toVal, style: "width:auto" }) as HTMLInputElement;
+  const fromInput = h("input", { class: "neon-input date-input", type: "date", value: fromVal, style: "width:auto" }) as HTMLInputElement;
+  const toInput = h("input", { class: "neon-input date-input", type: "date", value: toVal, style: "width:auto" }) as HTMLInputElement;
   const exportBtn = h("button", { class: "btn outline" }, "↓ Export CSV");
   const exportLink = document.createElement("a");
 

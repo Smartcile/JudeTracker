@@ -47,7 +47,7 @@ export async function renderCalendarPage(root: HTMLElement): Promise<void> {
   root.append(toolbar);
 
   const grid = h("div", {
-    class: "grid",
+    class: "grid cal-grid",
     style:
       "grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line-dim);border:1px solid var(--line-dim);border-radius:var(--r-md);overflow:hidden",
   });
@@ -108,9 +108,7 @@ export async function renderCalendarPage(root: HTMLElement): Promise<void> {
       const inMonth = day.getMonth() === view.month;
       const dayEvents = (eventsByDay.get(key) ?? []).slice().sort((a, b) => (a.startAt! < b.startAt! ? -1 : 1));
 
-      const cell = h("div", {
-        style: `background:${inMonth ? "var(--bg-panel)" : "rgba(15,23,42,0.5)"};min-height:96px;padding:4px;display:flex;flex-direction:column;gap:2px;cursor:${dayEvents.length ? "pointer" : "default"}`,
-      });
+      const cell = h("div", { class: `cal-cell${inMonth ? "" : " out"}${dayEvents.length ? " has-events" : ""}` });
       const num = h("span", {
         style:
           key === todayStr
@@ -123,7 +121,7 @@ export async function renderCalendarPage(root: HTMLElement): Promise<void> {
       for (const e of visible) {
         const job = jobByEvent.get(e.uid);
         const chip = h("button", {
-          class: "btn sm",
+          class: "btn sm cal-chip",
           style: `justify-content:flex-start;width:100%;padding:2px 6px;font-size:0.66rem;font-weight:600;border-radius:var(--r-xs);${job ? "background:var(--accent-soft);border-color:rgba(20,184,166,0.4);color:var(--accent)" : "border-color:var(--line);color:var(--fg-dim)"}`,
         }, e.summary || "Event");
         chip.onclick = (ev: Event) => {

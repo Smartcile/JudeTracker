@@ -3,11 +3,13 @@ import {
   date,
   doublePrecision,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { GeocodeResultDto } from "../../../shared/types.ts";
 
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey(),
@@ -15,10 +17,19 @@ export const settings = pgTable("settings", {
   timezone: text("timezone").notNull().default("Pacific/Auckland"),
   calendarUrl: text("calendar_url"),
   calendarLabel: text("calendar_label").notNull().default("Client calendar"),
+  homeBaseAddress: text("home_base_address").notNull().default(""),
+  homeBaseLat: doublePrecision("home_base_lat"),
+  homeBaseLng: doublePrecision("home_base_lng"),
   lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
   syncError: text("sync_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const geocodeCache = pgTable("geocode_cache", {
+  query: text("query").primaryKey(),
+  results: jsonb("results").$type<GeocodeResultDto[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const vehicles = pgTable("vehicles", {

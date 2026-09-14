@@ -11,10 +11,7 @@ export function showModal(opts: {
   onClose?: () => void;
 }): ModalHandle {
   const backdrop = h("div", { class: "modal-overlay" });
-  const panel = h("div", {
-    class: "modal-panel",
-    style: opts.wide ? "max-width:860px" : "max-width:560px",
-  });
+  const panel = h("div", { class: opts.wide ? "modal-panel wide" : "modal-panel" });
   const head = h(
     "div",
     { class: "modal-head" },

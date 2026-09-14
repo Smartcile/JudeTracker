@@ -3,9 +3,12 @@ import { confirmDialog, showModal, type ModalHandle } from "./modal.ts";
 import { toast } from "./toast.ts";
 import { openDialModal } from "./dial.ts";
 import { openCaptureWizard } from "./captureWizard.ts";
+import { locationPicker } from "./locationPicker.ts";
+import { fromLocalInput, lastTravelMinutes, timingHelper, toLocalInput, travelTimeSelect } from "./timingHelper.ts";
 import { h } from "../dom.ts";
 import { formatKm, formatNzd } from "../../../shared/claims.ts";
-import type { CalEventDto, JobDto, LogDto, VehicleDto } from "../../../shared/types.ts";
+import { shiftIsoMinutes } from "../../../shared/time.ts";
+import type { CalEventDto, JobDto, LogDto, SettingsDto, VehicleDto } from "../../../shared/types.ts";
 
 const pad = (km: number | null, digits: number) => (km == null ? "······" : String(km).padStart(digits, "0"));
 
@@ -20,21 +23,6 @@ function fmtWhen(iso: string | null): string {
 
 function fmtLatLng(lat: number | null, lng: number | null): string {
   return lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : "";
-}
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Split a stored instant into local date + time pieces for <input type=date/time>. */
-function localParts(iso: string): { date: string; time: string } {
-  const d = new Date(iso);
-  return {
-    date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
-    time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}`,
-  };
-}
-
-function isoFromLocal(date: string, time: string): string {
-  return new Date(`${date}T${time || "00:00"}`).toISOString();
 }
 
 async function openReading(job: JobDto, role: "start" | "end", logId: number, changed: () => Promise<void>): Promise<void> {
@@ -66,7 +54,14 @@ function noPhotoBox(text: string): HTMLElement {
   return box;
 }
 
-function readingSlot(job: JobDto, role: "start" | "end", changed: () => Promise<void>, onCapture?: () => void): HTMLElement {
+function readingSlot(
+  job: JobDto,
+  role: "start" | "end",
+  eventPromise: Promise<CalEventDto | null>,
+  settingsPromise: Promise<SettingsDto | null>,
+  changed: () => Promise<void>,
+  onCapture?: () => void,
+): HTMLElement {
   const log = role === "start" ? job.startLog : job.endLog;
   const slot = h("div", { class: "reading-slot", style: "gap:6px" });
 
@@ -125,7 +120,7 @@ function readingSlot(job: JobDto, role: "start" | "end", changed: () => Promise<
     ),
     media,
     h("div", { class: "row spread" }, reading, h("div", { class: "row", style: "gap:4px" }, edit, del)),
-    ...(locked ? [] : [logDetailsControls(role, log, changed)]),
+    ...(locked ? [] : [logDetailsControls(role, log, eventPromise, settingsPromise, changed)]),
   );
   return slot;
 }
@@ -187,36 +182,50 @@ function attachPhotoBox(logId: number, changed: () => Promise<void>): HTMLElemen
   return wrap;
 }
 
-/** Manual override for a log: backdate its date/time and/or replace its GPS point with typed coordinates. */
-function logDetailsControls(role: "start" | "end", log: LogDto, changed: () => Promise<void>): HTMLElement {
+/**
+ * Manual override for a log: arrival/travel-time helper plus an NZ address
+ * lookup that replaces the GPS point (typed coordinates stay as a fallback).
+ */
+function logDetailsControls(
+  role: "start" | "end",
+  log: LogDto,
+  eventPromise: Promise<CalEventDto | null>,
+  settingsPromise: Promise<SettingsDto | null>,
+  changed: () => Promise<void>,
+): HTMLElement {
   const wrap = h("div", { class: "col", style: "gap:6px" });
   const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.8rem;margin:0" });
 
   const openBtn = h("button", { class: "btn sm", style: "align-self:flex-start" }, "Edit time & location");
   const panel = h("div", {
     class: "col",
-    style: "gap:6px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)",
+    style: "gap:8px;display:none;border:1px solid var(--line-dim);border-radius:var(--r-sm);padding:8px;background:rgba(15,23,42,0.35)",
   });
 
-  const init = localParts(log.takenAt);
-  const dateI = h("input", { class: "neon-input", type: "date", value: init.date }) as HTMLInputElement;
-  const timeI = h("input", { class: "neon-input", type: "time", value: init.time }) as HTMLInputElement;
-  const latI = h("input", { class: "neon-input", type: "number", step: "any", min: "-90", max: "90", placeholder: "Latitude", value: log.lat?.toFixed(6) ?? "" }) as HTMLInputElement;
-  const lngI = h("input", { class: "neon-input", type: "number", step: "any", min: "-180", max: "180", placeholder: "Longitude", value: log.lng?.toFixed(6) ?? "" }) as HTMLInputElement;
+  const timing = timingHelper({ role, arrivalIso: log.takenAt, durationMinutes: null });
+  const picker = locationPicker({ lat: log.lat, lng: log.lng, homeBase: null });
+  void settingsPromise.then((s) => {
+    if (s) picker.setHomeBase(s);
+  });
+
+  const eventSlot = h("div", { class: "row" });
+  void eventPromise.then((ev) => {
+    if (!ev?.startAt) return;
+    const useEvent = h("button", { class: "btn sm ghost", style: "align-self:flex-start;font-size:0.72rem;padding:3px 8px" }, "⏱ Use calendar arrival");
+    useEvent.onclick = () => timing.setArrival(ev.startAt!);
+    eventSlot.append(useEvent);
+  });
 
   function reset(): void {
-    const p = localParts(log.takenAt);
-    dateI.value = p.date;
-    timeI.value = p.time;
-    latI.value = log.lat?.toFixed(6) ?? "";
-    lngI.value = log.lng?.toFixed(6) ?? "";
+    timing.setArrival(log.takenAt);
+    picker.set(log.lat != null && log.lng != null ? { lat: log.lat, lng: log.lng, label: "" } : null);
     errEl.textContent = "";
   }
 
   openBtn.onclick = () => {
     const open = panel.style.display === "none";
     panel.style.display = open ? "flex" : "none";
-    if (open) dateI.focus();
+    if (open) (panel.querySelector("input") as HTMLInputElement | null)?.focus();
   };
 
   const save = h("button", { class: "btn sm primary" }, "Save changes");
@@ -224,28 +233,22 @@ function logDetailsControls(role: "start" | "end", log: LogDto, changed: () => P
   save.onclick = async () => {
     errEl.textContent = "";
     const body: { takenAt?: string; lat?: number | null; lng?: number | null } = {};
-    if (dateI.value !== init.date || timeI.value !== init.time) {
-      body.takenAt = isoFromLocal(dateI.value, timeI.value);
+    const iso = timing.iso();
+    if (Math.floor(new Date(iso).getTime() / 60_000) !== Math.floor(new Date(log.takenAt).getTime() / 60_000)) {
+      body.takenAt = iso;
     }
-    const latRaw = latI.value.trim();
-    const lngRaw = lngI.value.trim();
-    const wantsManual = latRaw !== "" || lngRaw !== "";
-    if (wantsManual && (latRaw === "" || lngRaw === "")) {
-      errEl.textContent = "Enter both latitude and longitude — or empty both to clear the GPS point.";
+    const pickErr = picker.error();
+    if (pickErr) {
+      errEl.textContent = pickErr;
       return;
     }
+    const place = picker.get();
     const hasGps = log.lat != null && log.lng != null;
-    if (wantsManual) {
-      const lat = Number(latRaw);
-      const lng = Number(lngRaw);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        errEl.textContent = "Coordinates must be numbers.";
-        return;
-      }
-      const roundedSame = hasGps && lat.toFixed(6) === log.lat!.toFixed(6) && lng.toFixed(6) === log.lng!.toFixed(6);
+    if (place) {
+      const roundedSame = hasGps && place.lat.toFixed(6) === log.lat!.toFixed(6) && place.lng.toFixed(6) === log.lng!.toFixed(6);
       if (!roundedSame) {
-        body.lat = lat;
-        body.lng = lng;
+        body.lat = place.lat;
+        body.lng = place.lng;
       }
     } else if (hasGps) {
       body.lat = null;
@@ -265,20 +268,105 @@ function logDetailsControls(role: "start" | "end", log: LogDto, changed: () => P
   };
 
   panel.append(
-    h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px" },
-      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Date"), dateI),
-      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Time"), timeI),
-      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Latitude"), latI),
-      h("div", { class: "field", style: "margin:0" }, h("label", {}, "Longitude"), lngI),
-    ),
+    timing.el,
+    eventSlot,
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), picker.el),
     h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
-      `GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Edit the coordinates to override them (stored as manual); empty both to remove the point.`),
+      `GPS: ${fmtLatLng(log.lat, log.lng) || "none"}${log.lat != null ? ` (${log.gpsSource})` : ""}. Pick an address to replace it (stored as manual); clear the location to remove the point.`),
     h("div", { class: "row", style: "gap:6px" }, save, cancel),
     errEl,
   );
 
   wrap.append(openBtn, panel);
   return wrap;
+}
+
+/** One-tap return leg: client → home base, created as its own trip with two manual logs. */
+function driveHomeSection(
+  current: JobDto,
+  settingsPromise: Promise<SettingsDto | null>,
+  eventPromise: Promise<CalEventDto | null>,
+  changed: () => Promise<void>,
+): HTMLElement {
+  const box = h("div", { class: "col", style: "gap:6px" });
+  void Promise.all([settingsPromise, eventPromise]).then(([settings, event]) => {
+    if (settings?.homeBaseLat == null || settings.homeBaseLng == null) {
+      box.append(
+        h("p", { class: "text-faint", style: "font-size:0.72rem;margin:0" },
+          "Set a home base in Settings to log the drive home as a return trip."),
+      );
+      return;
+    }
+    const departDefault = event?.endAt ?? current.endLog?.takenAt ?? null;
+    const btn = h("button", { class: "btn sm", style: "white-space:nowrap" }, "＋ Log drive home");
+    btn.onclick = () => openReturnTripModal(current, departDefault, changed);
+    box.append(
+      h("div", { class: "row spread", style: "gap:8px;align-items:center" },
+        h("div", { class: "col", style: "gap:1px;min-width:0" },
+          h("span", { class: "text-dim", style: "font-size:0.78rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase" }, "Drive home"),
+          h("span", { class: "text-faint", style: "font-size:0.72rem" }, `Adds client → ${settings.homeBaseAddress || "home base"} as its own trip.`),
+        ),
+        btn,
+      ),
+    );
+  });
+  return box;
+}
+
+function openReturnTripModal(job: JobDto, departDefaultIso: string | null, changed: () => Promise<void>): void {
+  const departI = h("input", {
+    class: "neon-input",
+    type: "datetime-local",
+    value: toLocalInput(departDefaultIso ?? new Date().toISOString()),
+  }) as HTMLInputElement;
+  const travel = travelTimeSelect(lastTravelMinutes() ?? 30);
+  const arriveEl = h("p", { class: "text-dim", style: "font-size:0.8rem;margin:0" });
+  const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem;margin:0" });
+
+  const departureIso = (): string => fromLocalInput(departI.value) ?? new Date().toISOString();
+  const arrivalIso = (): string => shiftIsoMinutes(departureIso(), travel.value() ?? 0);
+  const refresh = (): void => {
+    arriveEl.textContent = `Arrive home at ${new Date(arrivalIso()).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+  departI.oninput = refresh;
+  travel.el.addEventListener("input", refresh);
+  travel.el.addEventListener("change", refresh);
+  refresh();
+
+  const save = h("button", { class: "btn primary" }, "Create return trip");
+  save.onclick = async () => {
+    errEl.textContent = "";
+    const departAt = departureIso();
+    const arriveAt = arrivalIso();
+    if (new Date(arriveAt).getTime() <= new Date(departAt).getTime()) {
+      errEl.textContent = "Add a travel time (or a later arrival) so the trip takes positive time.";
+      return;
+    }
+    save.disabled = true;
+    try {
+      await api.createReturnTrip(job.id, { departAt, arriveAt });
+      modal.close();
+      toast("Return trip logged — enter its readings when ready");
+      await changed();
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : String(err);
+      save.disabled = false;
+    }
+  };
+
+  const body = h("div", { class: "col" },
+    h("p", { class: "text-dim", style: "font-size:0.85rem;margin:0" },
+      "Creates a separate client → home base trip with two manual logs. Its odometer readings are entered like any other trip."),
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Leave the client"), departI),
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Travel time home"), travel.el),
+    arriveEl,
+    errEl,
+    h("div", { class: "row", style: "justify-content:flex-end" },
+      h("button", { class: "btn", onclick: () => modal.close() }, "Cancel"),
+      save,
+    ),
+  );
+  const modal = showModal({ title: `Drive home — ${job.client}`, body });
 }
 
 function claimControls(job: JobDto, changed: () => Promise<void>): HTMLElement {
@@ -347,8 +435,7 @@ function vehiclePicker(current: JobDto, changed: () => Promise<void>): HTMLEleme
         ? "Photos and readings log against this car - pick it before capturing, or add it below."
         : "Change the car anytime before a reading is entered.";
 
-  const select = h("select", { class: "neon-input", disabled: locked, title: locked ? hint.textContent : undefined }) as HTMLSelectElement;
-  select.style.flex = "1";
+  const select = h("select", { class: "neon-input vehicle-select", disabled: locked, title: locked ? hint.textContent : undefined }) as HTMLSelectElement;
   let vehicles: VehicleDto[] = [];
 
   async function load(): Promise<void> {
@@ -650,6 +737,7 @@ function eventLinker(current: JobDto, changed: () => Promise<void>): HTMLElement
   calHead.append(calPrev, calLabel, calNext, calToday);
 
   const calGrid = h("div", {
+    class: "cal-grid",
     style:
       "display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line-dim);border:1px solid var(--line-dim);border-radius:var(--r-sm);overflow:hidden;max-height:230px;overflow-y:auto",
   });
@@ -830,6 +918,11 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
 
   let modal: ModalHandle;
 
+  const settingsPromise = api.settings().catch(() => null);
+  const eventPromise: Promise<CalEventDto | null> = job.eventUid
+    ? api.calendarEventByUid(job.eventUid).catch(() => null)
+    : Promise.resolve(null);
+
   async function fetchJob(): Promise<JobDto | null> {
     try {
       const jobs = await api.jobs();
@@ -868,7 +961,7 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
 
     async function captureFor(role: "start" | "end"): Promise<void> {
       if (current.vehicleId != null) {
-        openCaptureWizard({ job: current, role, vehicleId: current.vehicleId }, changed);
+        void openCaptureWizard({ job: current, role, vehicleId: current.vehicleId }, changed);
         return;
       }
       try {
@@ -878,7 +971,7 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
           toast("Add a vehicle in Settings first", "err");
           return;
         }
-        openCaptureWizard({ job: current, role, vehicleId: pick.id }, changed);
+        void openCaptureWizard({ job: current, role, vehicleId: pick.id }, changed);
       } catch (err) {
         toast(err instanceof Error ? err.message : String(err), "err");
       }
@@ -927,14 +1020,17 @@ export function openTripModal(job: JobDto, refresh: () => Promise<void>): void {
     };
 
     const photos = h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px" },
-      readingSlot(current, "start", changed, () => void captureFor("start")),
-      readingSlot(current, "end", changed, () => void captureFor("end")),
+      readingSlot(current, "start", eventPromise, settingsPromise, changed, () => void captureFor("start")),
+      readingSlot(current, "end", eventPromise, settingsPromise, changed, () => void captureFor("end")),
     );
+
+    const driveHome = driveHomeSection(current, settingsPromise, eventPromise, changed);
 
     return h("div", { class: "col", style: "gap:12px" },
       chips,
       car,
       linker,
+      driveHome,
       h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px" },
         h("div", { class: "field", style: "margin:0" }, h("label", {}, "Client / purpose"), client),
         h("div", { class: "field", style: "margin:0" }, h("label", {}, "Location"), location),

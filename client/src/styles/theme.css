@@ -47,6 +47,19 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overflow-wrap: break-word;
+}
+
+.btn,
+.nav-link,
+.icon-btn,
+.trip-row,
+.expand-toggle,
+.dial-arrow,
+.dial-wheel {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -540,6 +553,24 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 
 .trip-row:last-child { border-bottom: none; }
 .trip-row:hover { background: rgba(148, 163, 184, 0.05); }
+.trip-main { flex: 1; min-width: 0; }
+.vehicle-select { flex: 1; min-width: 0; }
+
+/* Calendar month grid (Calendar page + trip popup browser) */
+.cal-grid > * { min-width: 0; }
+
+.cal-cell {
+  background: var(--bg-panel);
+  min-height: 96px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-cell.out { background: rgba(15, 23, 42, 0.5); }
+.cal-cell.has-events { cursor: pointer; }
+.cal-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .row-click:hover td { background: rgba(148, 163, 184, 0.05) !important; cursor: pointer; }
 
@@ -575,6 +606,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px 12px 48px;
 }
 
@@ -588,6 +620,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
   margin: auto 0;
   overflow: hidden;
 }
+
+.modal-panel.wide { max-width: 860px; }
 
 .modal-head {
   display: flex;
@@ -701,11 +735,90 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 
 /* Responsive --------------------------------------------------------------------- */
 @media (max-width: 760px) {
-  #app { padding: 12px; padding-bottom: 84px; }
-  .topnav { position: static; margin: -12px -12px 14px; padding: 10px 14px; }
+  #app {
+    padding: 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .topnav {
+    position: static;
+    margin: -12px -12px 14px;
+    padding: 10px max(14px, env(safe-area-inset-left)) 10px max(14px, env(safe-area-inset-right));
+  }
   .topnav .nav-link { display: none; }
-  .bottomnav { display: flex; }
+
+  .bottomnav {
+    display: flex;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   .hero { padding: 20px 16px; }
+  .hero .cta { width: 100%; }
   .metric-value { font-size: 1.4rem; }
-  .modal-panel { margin: 0; }
+  .card { padding: 14px; }
+  .date-input { flex: 1 1 130px; min-width: 0; }
+
+  /* Touch-friendly controls */
+  .btn { padding: 10px 14px; }
+  .btn.sm { padding: 7px 10px; }
+  .icon-btn { padding: 9px 11px; }
+  .expand-toggle { width: 32px; height: 32px; }
+  .dial-arrow { padding: 10px 0 8px; font-size: 0.8rem; }
+
+  /* iOS Safari zooms the page when focusing inputs below 16px */
+  .neon-input,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Trip rows: wrap the action button instead of squeezing the client name */
+  .trip-row { flex-wrap: wrap; row-gap: 6px; }
+  .trip-row > .btn { margin-left: auto; }
+  .trip-main { flex-basis: 160px; }
+  .vehicle-select { flex: 1 1 100%; }
+  .cal-cell { min-height: 62px; padding: 2px; }
+
+  /* Full-screen modal sheets with a pinned header */
+  .modal-overlay {
+    padding: 0;
+    align-items: stretch;
+    backdrop-filter: none;
+    background: rgba(2, 6, 23, 0.85);
+  }
+  .modal-panel,
+  .modal-panel.wide {
+    max-width: none;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg-panel);
+    padding: 12px max(16px, env(safe-area-inset-left)) 12px max(16px, env(safe-area-inset-right));
+    padding-top: calc(12px + env(safe-area-inset-top));
+  }
+  .modal-body {
+    flex: 1;
+    padding: 14px max(14px, env(safe-area-inset-left)) calc(20px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-right));
+  }
+
+  .toast { bottom: calc(74px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 380px) {
+  .dial-wheel { width: 42px; margin: 0 1px; }
+  .dial-num { font-size: 1.55rem; }
+  .modal-body { padding-left: 10px; padding-right: 10px; }
 }

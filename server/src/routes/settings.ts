@@ -20,9 +20,13 @@ settingsRouter.put("/", async (req, res) => {
   await db
     .update(settings)
     .set({
-      timezone: body.timezone,
-      calendarUrl: body.calendarUrl || null,
-      calendarLabel: body.calendarLabel,
+      timezone: body.timezone ?? row.timezone,
+      calendarUrl: body.calendarUrl === undefined ? row.calendarUrl : body.calendarUrl || null,
+      calendarLabel: body.calendarLabel ?? row.calendarLabel,
+      homeBaseAddress: body.homeBaseAddress ?? row.homeBaseAddress,
+      ...(body.homeBaseLat !== undefined || body.homeBaseLng !== undefined
+        ? { homeBaseLat: body.homeBaseLat ?? null, homeBaseLng: body.homeBaseLng ?? null }
+        : {}),
       syncError: null,
       updatedAt: new Date(),
     })

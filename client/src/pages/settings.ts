@@ -1,6 +1,7 @@
 import { api, ApiError } from "../api.ts";
 import { confirmDialog, showModal } from "../components/modal.ts";
 import { toast } from "../components/toast.ts";
+import { locationPicker } from "../components/locationPicker.ts";
 import { clear, h } from "../dom.ts";
 import type { SettingsDto, VehicleDto } from "../../../shared/types.ts";
 
@@ -255,6 +256,51 @@ function renderCalendar(body: HTMLElement): void {
   );
 }
 
+// Home base --------------------------------------------------------------------
+
+function renderHomeBase(body: HTMLElement): void {
+  clear(body);
+  body.append(h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Home base")));
+
+  const picker = locationPicker({
+    lat: settings?.homeBaseLat ?? null,
+    lng: settings?.homeBaseLng ?? null,
+    label: settings?.homeBaseAddress ?? "",
+    homeBase: null,
+    placeholder: "Search your home address…",
+  });
+  const errEl = h("p", { class: "text-danger", style: "min-height:1em;font-size:0.85rem;margin:0" });
+  const saveBtn = h("button", { class: "btn primary" }, "Save home base");
+  saveBtn.onclick = async () => {
+    errEl.textContent = "";
+    const pickErr = picker.error();
+    if (pickErr) {
+      errEl.textContent = pickErr;
+      return;
+    }
+    const place = picker.get();
+    try {
+      await api.saveSettings({
+        homeBaseAddress: place?.label ?? "",
+        homeBaseLat: place?.lat ?? null,
+        homeBaseLng: place?.lng ?? null,
+      });
+      toast("Home base saved");
+      await rerender();
+    } catch (err) {
+      errEl.textContent = err instanceof ApiError ? err.message : "Something went wrong";
+    }
+  };
+
+  body.append(
+    h("p", { class: "text-dim", style: "font-size:0.85rem;margin-bottom:10px" },
+      "Used as the start of home → client trips and for the “Log drive home” return leg. Search a NZ address (results are cached for offline reuse) or enter coordinates."),
+    h("div", { class: "field", style: "margin:0" }, h("label", {}, "Home address"), picker.el),
+    h("div", { class: "row", style: "justify-content:flex-end" }, saveBtn),
+    errEl,
+  );
+}
+
 // Security ---------------------------------------------------------------------
 
 function renderSecurity(body: HTMLElement): void {
@@ -343,12 +389,14 @@ export async function renderSettings(root: HTMLElement): Promise<void> {
   root.append(head);
 
   const cal = h("div", { class: "card" });
+  const home = h("div", { class: "card" });
   const veh = h("div", { class: "card" });
   const sec = h("div", { class: "card" });
   const exp = h("div", { class: "card" });
-  root.append(cal, veh, sec, exp);
+  root.append(cal, home, veh, sec, exp);
 
   renderCalendar(cal);
+  renderHomeBase(home);
   renderVehicles(veh);
   renderSecurity(sec);
   renderExport(exp);

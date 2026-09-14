@@ -66,9 +66,18 @@ export interface SettingsDto {
   timezone: string;
   calendarUrl: string | null;
   calendarLabel: string;
+  homeBaseAddress: string;
+  homeBaseLat: number | null;
+  homeBaseLng: number | null;
   lastSyncAt: string | null;
   syncError: string | null;
   pinSet: boolean;
+}
+
+export interface GeocodeResultDto {
+  label: string;
+  lat: number;
+  lng: number;
 }
 
 export interface AuthStateDto {
