@@ -3,6 +3,7 @@ import { confirmDialog, showModal } from "../components/modal.ts";
 import { toast } from "../components/toast.ts";
 import { openTripModal } from "../components/tripModal.ts";
 import { openCaptureWizard } from "../components/captureWizard.ts";
+import { openTripFlow } from "../components/tripFlow.ts";
 import { clear, h } from "../dom.ts";
 import { formatKm, formatNzd, fyWindow } from "../../../shared/claims.ts";
 import { useSplit } from "../components/useSplit.ts";
@@ -180,14 +181,29 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
   const open = jobs.filter((j) => j.status === "open" || j.status === "ready");
   const today = localDay(new Date());
   const todayTrips = open.filter((j) => j.jobDate === today);
+  const inProgress = open
+    .filter((j) => j.startLogId != null && j.endLogId == null)
+    .sort((a, b) => ((a.startLog?.takenAt ?? "") < (b.startLog?.takenAt ?? "") ? 1 : -1));
+  const stopTarget = inProgress[0] ?? null;
 
-  const cta = h("button", { class: "cta" }, "+ Log New Trip");
+  const cta = h("button", { class: "cta" }, stopTarget ? "Stop trip" : "Start trip");
+  const more = h("button", { class: "btn ghost sm", type: "button", style: "margin-left:8px" }, "More log options");
   const hero = h("div", { class: "hero" },
-    h("h1", {}, "Log your next trip"),
-    h("p", {}, "Photograph the odometer at the start and end of a job — readings, km and claim value follow. No photo handy? Pick “Later on”."),
-    cta,
+    h("h1", {}, stopTarget ? "Still on the road?" : "Log your next trip"),
+    h("p", {},
+      stopTarget
+        ? `Started ${fmtTime(stopTarget.startLog?.takenAt ?? null)}${stopTarget.startLog?.locationLabel ? ` at ${stopTarget.startLog.locationLabel}` : ""}. Tap Stop trip when you arrive — mileage, photo and calendar link are optional.`
+        : "Tap Start trip when you set off, then Stop trip when you arrive. Mileage, photo and calendar link are optional and can be edited later. GPS and the address are saved automatically."),
+    h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:center" }, cta, more),
   );
-  cta.onclick = () => startCapture(vehicles);
+  cta.onclick = () => {
+    if (stopTarget) {
+      openTripFlow({ mode: "stop", job: stopTarget, vehicles, onDone: rerender });
+    } else {
+      openTripFlow({ mode: "start", vehicles, onDone: rerender });
+    }
+  };
+  more.onclick = () => startCapture(vehicles);
 
   const metric = (label: string, dotClass: string, value: string, sub: string) =>
     h("div", { class: "metric" },
@@ -259,15 +275,11 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
     card.append(h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Trips in progress")));
     for (const j of openSection) {
       const row = h("div", { class: "trip-row row-click", onclick: () => openTripModal(j, rerender) });
-      const roleBtn = h("button", { class: j.startLogId == null ? "btn sm primary" : "btn sm" },
-        j.startLogId == null ? "Take start photo" : "Take end photo");
+      const started = j.startLogId != null && j.endLogId == null;
+      const roleBtn = h("button", { class: started ? "btn sm" : "btn sm primary" }, started ? "Stop trip" : "Start trip");
       roleBtn.onclick = (e: Event) => {
         e.stopPropagation();
-        const vehiclesById = new Map(vehicles.map((v) => [v.id, v]));
-        const vehicleId = j.vehicleId ?? Number(localStorage.getItem(LAST_VEHICLE_KEY) ?? 0);
-        const v = vehiclesById.get(vehicleId) ?? vehicles.find((x) => x.active) ?? vehicles[0];
-        if (!v) return;
-        void openCaptureWizard({ job: j, role: j.startLogId == null ? "start" : "end", vehicleId: v.id, onManualSaved: manualSavedPopup }, rerender);
+        openTripFlow({ mode: started ? "stop" : "start", job: j, vehicles, onDone: rerender });
       };
       const del = h("button", { class: "icon-btn danger", title: "Delete trip", "aria-label": "Delete trip" }, "✕");
       del.onclick = (e: Event) => {
@@ -311,7 +323,7 @@ export async function renderDashboard(root: HTMLElement): Promise<void> {
   if (recent.length === 0) {
     recCard.append(h("div", { class: "empty" },
       h("div", { class: "empty-title" }, "No trips logged yet"),
-      h("p", {}, "Click + Log New Trip above to start tracking your first job."),
+      h("p", {}, "Tap Start trip above to start tracking your first job."),
     ));
   } else {
     for (const j of recent) {

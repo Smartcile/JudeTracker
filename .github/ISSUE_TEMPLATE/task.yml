@@ -1,0 +1,118 @@
+name: Task
+description: A JudeTracker fix or feature request
+title: "[AREA] "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of JudeTracker does this touch?
+      options:
+        - Logging
+        - Trips
+        - Photos
+        - Readings
+        - Claims and totals
+        - Vehicles and rates
+        - Calendar
+        - Settings and home base
+        - Addresses and places
+        - Auth and sessions
+        - Export
+        - UI and mobile
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+      description: Describe the current behaviour and why it is a problem.
+      placeholder: When I take a photo for a second trip on the same day...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen?
+      description: Describe the expected behaviour as if you were using it.
+      placeholder: I should be able to pick the trip before the photo saves...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this to be done?
+      placeholder: |
+        - [ ] The trip popup lists the day's trips.
+        - [ ] The reading floor is enforced server-side.
+        - [ ] Existing logs are unchanged.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: db_impact
+    attributes:
+      label: Database or schema impact
+      options:
+        - "No"
+        - "Yes - schema change"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Screenshots, links, or extra context
+      description: Paste screenshots, page paths, or related issues.
+      placeholder: Dashboard -> trip popup -> readings...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: screenshot_needed
+    attributes:
+      label: Screenshot before merge?
+      description: Choose Yes when you want the agent to post a visual check.
+      options:
+        - "No"
+        - "Yes"
+        - "Only if the UI changes"
+    validations:
+      required: true
+
+  - type: input
+    id: screenshot_path
+    attributes:
+      label: Page to screenshot
+      description: The hash route the agent should capture.
+      placeholder: /#/review
+    validations:
+      required: false
+
+  - type: dropdown
+    id: screenshot_role
+    attributes:
+      label: Screenshot login
+      options:
+        - Public
+        - App
+    validations:
+      required: false

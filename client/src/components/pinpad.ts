@@ -30,22 +30,15 @@ export function renderPinPad(container: HTMLElement, opts: PinPadOptions): void 
   const okBtn = h("button", { class: "btn primary", onclick: submit, tabindex: "-1" }, "OK");
   grid.append(zero, backBtn, okBtn);
 
-  function paintDots(): void {
-    clear(dots);
-    for (let i = 0; i < 6; i++) {
-      dots.append(h("span", { class: i < pin.length ? "pin-dot filled" : "pin-dot" }));
-    }
-  }
-
   function press(digit: string): void {
     if (pin.length >= 6) return;
     pin += digit;
-    paintDots();
+    dots.append(h("span", { class: "pin-dot" }));
   }
 
   function back(): void {
     pin = pin.slice(0, -1);
-    paintDots();
+    dots.lastElementChild?.remove();
   }
 
   async function submit(): Promise<void> {
@@ -57,13 +50,12 @@ export function renderPinPad(container: HTMLElement, opts: PinPadOptions): void 
     } catch (err) {
       errEl.textContent = err instanceof Error ? err.message : String(err);
       pin = "";
-      paintDots();
+      clear(dots);
     } finally {
       busy = false;
     }
   }
 
-  paintDots();
   const kids: Array<Node | null> = [heading, subtitle, dots, errEl, grid];
   for (const kid of kids) {
     if (kid != null) wrap.append(kid);
