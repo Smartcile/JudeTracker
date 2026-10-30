@@ -12,6 +12,7 @@ import { logFields, logPatchBody, readingBody } from "../lib/validation.ts";
 import { readingContext, setLogReading } from "../services/readings.ts";
 import { removePhoto, storePhoto } from "../services/photos.ts";
 import { readPhotoMeta } from "../services/exif.ts";
+import { reverseGeocodeNZ } from "../services/geocode.ts";
 import { assertJobLocked, requireJob } from "./jobs.ts";
 
 const upload = multer({
@@ -149,6 +150,14 @@ jobsLogsRouter.post("/jobs/:id/logs", upload.single("photo"), async (req, res) =
   }
   takenAt = takenAt ?? new Date();
 
+  if (lat != null && lng != null && !fields.locationLabel) {
+    try {
+      fields.locationLabel = (await reverseGeocodeNZ(lat, lng)).label;
+    } catch {
+      /* best effort: keep the coordinates when the address lookup is offline */
+    }
+  }
+
   const inserted = await db
     .insert(logs)
     .values({
@@ -219,9 +228,17 @@ logsRouter.put("/:id/photo", upload.single("photo"), async (req, res) => {
   }
 
   await storePhoto(id, req.file.buffer);
+  let locationLabel = log.locationLabel;
+  if (lat != null && lng != null && !locationLabel) {
+    try {
+      locationLabel = (await reverseGeocodeNZ(lat, lng)).label;
+    } catch {
+      /* best effort: keep the coordinates when the address lookup is offline */
+    }
+  }
   const updated = await db
     .update(logs)
-    .set({ hasPhoto: true, lat, lng, gpsSource })
+    .set({ hasPhoto: true, lat, lng, gpsSource, locationLabel })
     .where(eq(logs.id, id))
     .returning();
   httpAssert(updated[0], 500, "Failed to update log");

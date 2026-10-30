@@ -30,6 +30,8 @@ Milestones marked done shipped in v0.1; the rest are candidate improvements, rou
 - [x] Trip **location via NZ address search**, with the picked point stored on the trip; **Saved places** (Settings CRUD: name + address + coordinates) appear as one-tap quick picks in every address search, and any searched address can be saved inline with ☆ Save place
 - [x] **Add a trip on**: creates the next business trip starting exactly where the current one ended — same time, place and odometer — without carrying the calendar event across (client-to-client chaining); logs keep a human-readable location label so the copied start shows the old destination's address
 - [x] **Road-distance lookup**: the drive-home modal asks OpenStreetMap's OSRM for the driving distance between the client and the home base and prefills the distance picker; results are cached in Postgres (`route_cache`), so repeat legs work offline, and the manual picker stays as the fallback
+- [x] One-tap **Start trip / Stop trip** dashboard flow: a popup with optional mileage, photo and calendar link, live GPS captured at both ends, and GPS→NZ address reverse geocoding (cached with the existing Nominatim lookup)
+- [x] PIN pad polish: circular keys, and filled dots that appear with a bounce as each digit is typed
 - [x] NZ address lookup (OpenStreetMap Nominatim, NZ-only) proxied server-side and cached in Postgres, so previously searched addresses keep resolving when the internet is down; typed coordinates remain the fallback
 - [x] Format-proof photo uploads: HEIC/HEIF (iPhone/Android) decoded in-process via `heic-decode`, every accepted image normalized to a single 1920px JPEG (EXIF kept) + 480px thumbnail; originals are no longer stored (legacy `orig.*` files still served)
 

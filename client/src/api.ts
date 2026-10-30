@@ -77,6 +77,9 @@ export const api = {
   geocode: (query: string) =>
     request<{ results: GeocodeResultDto[] }>(`/api/geocode?${new URLSearchParams({ q: query })}`),
 
+  reverseGeocode: (lat: number, lng: number) =>
+    request<GeocodeResultDto>(`/api/geocode/reverse?${new URLSearchParams({ lat: String(lat), lng: String(lng) })}`),
+
   /** Road (driving) distance in whole km between two points; cached server-side. */
   distanceKm: (fromLat: number, fromLng: number, toLat: number, toLng: number) =>
     request<{ km: number }>(

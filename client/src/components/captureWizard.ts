@@ -34,6 +34,14 @@ function getPosition(): Promise<{ lat: number; lng: number; accuracy: number } |
   });
 }
 
+/** One live GPS fix, capped so saving never blocks on a slow or denied fix. */
+export function locateOnce(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
+  return Promise.race([
+    getPosition(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), GPS_TIMEOUT_MS)),
+  ]);
+}
+
 /**
  * Phone-style odometer capture: Take photo / Use an existing photo (both save
  * automatically on selection), or "Later on" for a no-photo log with manual
@@ -104,10 +112,7 @@ export async function openCaptureWizard(ctx: CaptureContext, onDone: () => Promi
 
   async function locate(): Promise<void> {
     gpsEl.textContent = "Getting GPS fix...";
-    const pos = await Promise.race([
-      getPosition(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), GPS_TIMEOUT_MS)),
-    ]);
+    const pos = await locateOnce();
     if (pos) {
       lat = pos.lat;
       lng = pos.lng;
